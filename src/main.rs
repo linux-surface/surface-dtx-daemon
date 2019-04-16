@@ -55,14 +55,14 @@ fn main() -> Result<()> {
 
     // event handler
     let device = Device::open()?;
-    let event_task = event_task(logger.clone(), &device, queue_tx)?;
+    let event_task = setup_event_task(logger.clone(), device, queue_tx)?;
 
     // process queue handler
-    let process_task = process_task(logger.clone(), device, queue_rx).shared();
+    let process_task = setup_process_task(queue_rx).shared();
     let shutdown_task = process_task.clone().map(|_| ());
 
     // shutdown handler
-    let signal = shutdown_signal(logger.clone(), shutdown_task);
+    let signal = setup_shutdown_signal(logger.clone(), shutdown_task);
     let event_task = event_task.select(signal);
 
     // only critical errors will reach this point
@@ -84,7 +84,7 @@ fn main() -> Result<()> {
 }
 
 
-fn shutdown_signal<F>(log: Logger, shutdown_task: F) -> impl Future<Item=(), Error=Error>
+fn setup_shutdown_signal<F>(log: Logger, shutdown_task: F) -> impl Future<Item=(), Error=Error>
 where
     F: Future + 'static,
     <F as Future>::Error: std::fmt::Display,
@@ -102,12 +102,7 @@ where
 
         // actual shutdown code provided via shutdown_task: wait for completion
         let l = log.clone();
-        let task = shutdown_task.map(move |_| {
-            info!(l, "shutdown procedure done");
-        });
-
-        let l = log.clone();
-        let task = task.map_err(move |e| {
+        let task = shutdown_task.map(|_| ()).map_err(move |e| {
             error!(l, "error while terminating: {}", e);
         });
 
@@ -125,12 +120,12 @@ where
     })
 }
 
-fn event_task(log: Logger, device: &Device, queue_tx: Sender<DtxProcess>)
+fn setup_event_task(log: Logger, device: Device, queue_tx: Sender<DtxProcess>)
     -> Result<impl Future<Item=(), Error=Error>>
 {
     let events = device.events()?.map_err(Error::from);
 
-    let mut handler = EventHandler { log, queue_tx };
+    let mut handler = EventHandler::new(log, Rc::new(device), queue_tx);
     let task = events.for_each(move |evt| {
         handler.handle(evt)
     });
@@ -138,31 +133,30 @@ fn event_task(log: Logger, device: &Device, queue_tx: Sender<DtxProcess>)
     Ok(task)
 }
 
-fn process_task(log: Logger, device: Device, queue_rx: Receiver<DtxProcess>)
+fn setup_process_task(queue_rx: Receiver<DtxProcess>)
     -> impl Future<Item=(), Error=Error>
 {
-    let mut queue = ProcessQueue { log, device: Rc::new(device) };
-
-    queue_rx.map_err(|e| panic!(e)).for_each(move |task| {
-        queue.next(task)
+    queue_rx.map_err(|e| panic!(e)).for_each(|task| {
+        task
     })
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DtxProcess {
-    Attach,
-    Detach,
-    DetachAbort,
-}
+type DtxProcess = Box<dyn Future<Item=(), Error=Error>>;
 
 
 struct EventHandler {
     log: Logger,
+    device: Rc<Device>,
     queue_tx: Sender<DtxProcess>,
 }
 
 impl EventHandler {
+    fn new(log: Logger, device: Rc<Device>, queue_tx: Sender<DtxProcess>) -> Self {
+        EventHandler { log, device, queue_tx }
+    }
+
+
     fn handle(&mut self, evt: RawEvent) -> Result<()> {
         trace!(self.log, "received event"; "event" => ?evt);
 
@@ -208,76 +202,32 @@ impl EventHandler {
 
     fn on_detach_request(&mut self) {
         debug!(self.log, "detach requested");                           // TODO
-        self.queue_tx.try_send(DtxProcess::Detach).unwrap();
+
+        let log = self.log.clone();
+        let dev = self.device.clone();
+
+        let task = tokio_timer::sleep(Duration::from_secs(5)).map_err(|e| panic!(e));
+        let task = task.and_then(move |_| {
+            debug!(log, "detachment process completed");
+            dev.commands().latch_open()
+        });
+
+        self.queue_proc_task(Box::new(task));
     }
 
     fn on_detach_error(&mut self, err: u8) {
         debug!(self.log, "detach error: {}", err);                      // TODO
     }
-}
 
 
-struct ProcessQueue {
-    log: Logger,
-    device: Rc<Device>,
-}
-
-impl ProcessQueue {
-    fn next(&mut self, ty: DtxProcess) -> Box<dyn Future<Item=(), Error=Error>> {
-        match ty {
-            DtxProcess::Attach      => Box::new(self.on_attach()),
-            DtxProcess::Detach      => Box::new(self.on_detach()),
-            DtxProcess::DetachAbort => Box::new(self.on_detach_abort()),
+    fn queue_proc_task(&mut self, task: DtxProcess) {
+        let res = self.queue_tx.try_send(Box::new(task));
+        if let Err(e) = res {
+            if e.is_full() {
+                warn!(self.log, "process queue is full, dropping task")
+            } else {
+                unreachable!("process queue closed")
+            }
         }
-    }
-
-    fn on_attach(&mut self) -> impl Future<Item=(), Error=Error> {
-        debug!(self.log, "process started: attach");
-
-        // TODO: on_attach
-        let task = tokio_timer::sleep(Duration::from_millis(5000));
-        let task = task.map_err(|e| Error::Message { message: format!("{:?}", e).into() });
-
-        let log = self.log.clone();
-        let task = task.and_then(move |_| {
-            debug!(log, "process finished: attach");
-            Ok(())
-        });
-
-        task
-    }
-
-    fn on_detach(&mut self) -> impl Future<Item=(), Error=Error> {
-        debug!(self.log, "process started: detach");
-
-        // TODO: on_detach
-        let task = tokio_timer::sleep(Duration::from_millis(5000));
-        let task = task.map_err(|e| Error::Message { message: format!("{:?}", e).into() });
-
-        let log = self.log.clone();
-        let dev = self.device.clone();
-        let task = task.and_then(move |_| {
-            debug!(log, "process finished: detach");
-            dev.commands().latch_open()?;
-            Ok(())
-        });
-
-        task
-    }
-
-    fn on_detach_abort(&mut self) -> impl Future<Item=(), Error=Error> {
-        debug!(self.log, "process started: detach_abort");
-
-        // TODO: on_detach_abort
-        let task = tokio_timer::sleep(Duration::from_millis(5000));
-        let task = task.map_err(|e| Error::Message { message: format!("{:?}", e).into() });
-
-        let log = self.log.clone();
-        let task = task.and_then(move |_| {
-            debug!(log, "process finished: detach_abort");
-            Ok(())
-        });
-
-        task
     }
 }
