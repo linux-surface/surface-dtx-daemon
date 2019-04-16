@@ -120,12 +120,12 @@ where
     })
 }
 
-fn setup_event_task(log: Logger, device: Device, queue_tx: Sender<DtxProcess>)
+fn setup_event_task(log: Logger, device: Device, task_queue_tx: Sender<BoxedTask>)
     -> Result<impl Future<Item=(), Error=Error>>
 {
     let events = device.events()?.map_err(Error::from);
 
-    let mut handler = EventHandler::new(log, Rc::new(device), queue_tx);
+    let mut handler = EventHandler::new(log, Rc::new(device), task_queue_tx);
     let task = events.for_each(move |evt| {
         handler.handle(evt)
     });
@@ -133,27 +133,26 @@ fn setup_event_task(log: Logger, device: Device, queue_tx: Sender<DtxProcess>)
     Ok(task)
 }
 
-fn setup_process_task(queue_rx: Receiver<DtxProcess>)
+fn setup_process_task(task_queue_rx: Receiver<BoxedTask>)
     -> impl Future<Item=(), Error=Error>
 {
-    queue_rx.map_err(|e| panic!(e)).for_each(|task| {
+    task_queue_rx.map_err(|e| panic!(e)).for_each(|task| {
         task
     })
 }
 
 
-type DtxProcess = Box<dyn Future<Item=(), Error=Error>>;
-
+type BoxedTask = Box<dyn Future<Item=(), Error=Error>>;
 
 struct EventHandler {
     log: Logger,
     device: Rc<Device>,
-    queue_tx: Sender<DtxProcess>,
+    task_queue_tx: Sender<BoxedTask>,
 }
 
 impl EventHandler {
-    fn new(log: Logger, device: Rc<Device>, queue_tx: Sender<DtxProcess>) -> Self {
-        EventHandler { log, device, queue_tx }
+    fn new(log: Logger, device: Rc<Device>, task_queue_tx: Sender<BoxedTask>) -> Self {
+        EventHandler { log, device, task_queue_tx }
     }
 
 
@@ -220,8 +219,8 @@ impl EventHandler {
     }
 
 
-    fn queue_proc_task(&mut self, task: DtxProcess) {
-        let res = self.queue_tx.try_send(Box::new(task));
+    fn queue_proc_task(&mut self, task: BoxedTask) {
+        let res = self.task_queue_tx.try_send(Box::new(task));
         if let Err(e) = res {
             if e.is_full() {
                 warn!(self.log, "process queue is full, dropping task")
