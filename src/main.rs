@@ -56,7 +56,7 @@ fn main() -> Result<()> {
 
     // event handler
     let device = Device::open()?;
-    let event_task = setup_event_task(logger.clone(), device, queue_tx)?;
+    let event_task = setup_event_task(logger.clone(), config, device, queue_tx)?;
 
     // process queue handler
     let process_task = setup_process_task(queue_rx).shared();
@@ -121,12 +121,12 @@ where
     })
 }
 
-fn setup_event_task(log: Logger, device: Device, task_queue_tx: Sender<BoxedTask>)
+fn setup_event_task(log: Logger, config: Config, device: Device, task_queue_tx: Sender<BoxedTask>)
     -> Result<impl Future<Item=(), Error=Error>>
 {
     let events = device.events()?.map_err(Error::from);
 
-    let mut handler = EventHandler::new(log, Rc::new(device), task_queue_tx);
+    let mut handler = EventHandler::new(log, config, Rc::new(device), task_queue_tx);
     let task = events.for_each(move |evt| {
         handler.handle(evt)
     });
@@ -147,6 +147,7 @@ type BoxedTask = Box<dyn Future<Item=(), Error=Error>>;
 
 struct EventHandler {
     log: Logger,
+    config: Config,
     task_queue_tx: Sender<BoxedTask>,
     device: Rc<Device>,
     state: Rc<RefCell<State>>,
@@ -154,10 +155,10 @@ struct EventHandler {
 }
 
 impl EventHandler {
-    fn new(log: Logger, device: Rc<Device>, task_queue_tx: Sender<BoxedTask>) -> Self {
+    fn new(log: Logger, config: Config, device: Rc<Device>, task_queue_tx: Sender<BoxedTask>) -> Self {
         let state = Rc::new(RefCell::new(State::Normal));
 
-        EventHandler { log, device, task_queue_tx, state, ignore_request: 0 }
+        EventHandler { log, config, device, task_queue_tx, state, ignore_request: 0 }
     }
 
 
@@ -166,13 +167,13 @@ impl EventHandler {
 
         match Event::try_from(evt) {
             Ok(Event::OpModeChange { mode }) => {
-                self.on_opmode_change(mode);
+                self.on_opmode_change(mode)
             },
             Ok(Event::ConectionChange { state, arg1: _ }) => {
-                self.on_connection_change(state);
+                self.on_connection_change(state)
             },
             Ok(Event::LatchStateChange { state }) => {
-                self.on_latch_state_change(state);
+                self.on_latch_state_change(state)
             },
             Ok(Event::DetachRequest) => {
                 self.on_detach_request()
@@ -185,66 +186,70 @@ impl EventHandler {
                     "type" => evt.typ,  "code" => evt.code,
                     "arg0" => evt.arg0, "arg1" => evt.arg1
                 );
+
+                Ok(())
             },
         }
+    }
 
+
+    fn on_opmode_change(&mut self, mode: OpMode) -> Result<()> {
+        debug!(self.log, "device mode changed: {:?}", mode);                    // TODO
         Ok(())
     }
 
-
-    fn on_opmode_change(&mut self, mode: OpMode) {
-        debug!(self.log, "device mode changed: {:?}", mode);                    // TODO
-    }
-
-    fn on_latch_state_change(&mut self, state: LatchState) {
+    fn on_latch_state_change(&mut self, state: LatchState) -> Result<()> {
         debug!(self.log, "latch-state changed: {:?}", state);                   // TODO
+        Ok(())
     }
 
-    fn on_connection_change(&mut self, state: ConnectionState) {
-        debug!(self.log, "clipboard connection changed: {:?}", state);
+    fn on_connection_change(&mut self, connection: ConnectionState) -> Result<()> {
+        debug!(self.log, "clipboard connection changed: {:?}", connection);
 
-        match (*self.state.borrow(), state) {
+        let state = *self.state.borrow();
+        match (state, connection) {
             (State::Detaching, ConnectionState::Disconnected) => {
                 *self.state.borrow_mut() = State::Normal;
                 debug!(self.log, "detachment procedure completed");
+                Ok(())
             },
             (State::Normal, ConnectionState::Connected) => {
-                *self.state.borrow_mut() = State::Attaching;
-
-                // TODO: schedule 'attach' process
+                { *self.state.borrow_mut() = State::Attaching; }
+                self.schedule_task_attach()
             },
             _ => {
                 error!(self.log, "invalid state"; "state" => ?(*self.state.borrow(), state));
+                Ok(())
             },
         }
     }
 
-    fn on_detach_request(&mut self) {
-        debug!(self.log, "clipboard detach requested");
-
+    fn on_detach_request(&mut self) -> Result<()> {
         if self.ignore_request > 0 {
             self.ignore_request -= 1;
-            return;
+            return Ok(());
         }
 
-        match *self.state.borrow() {
+        let state = *self.state.borrow();
+        match state {
             State::Normal => {
+                debug!(self.log, "clipboard detach requested");
                 *self.state.borrow_mut() = State::Detaching;
-
-                // TODO: schedule 'detach' process
+                self.schedule_task_detach()
             },
             State::Detaching => {
+                debug!(self.log, "clipboard detach-abort requested");
                 *self.state.borrow_mut() = State::Aborting;
-
-                // TODO: schedule 'abort_detach' process
+                self.schedule_task_detach_abort()
             },
             State::Aborting | State::Attaching => {
-                // TODO: cancel current request, ignore_request += 1
+                self.ignore_request += 1;
+                self.device.commands().latch_request()
             },
         }
     }
 
-    fn on_detach_error(&mut self, err: u8) {
+    fn on_detach_error(&mut self, err: u8) -> Result<()> {
         if err == 0x02 {
             debug!(self.log, "detachment procedure: timed out");
         } else {
@@ -253,21 +258,115 @@ impl EventHandler {
 
         if *self.state.borrow() == State::Detaching {
             *self.state.borrow_mut() = State::Aborting;
-
-            // TODO: schedule 'abort_detach' process
+            self.schedule_task_detach_abort()
+        } else {
+            Ok(())
         }
     }
 
 
-    fn queue_proc_task(&mut self, task: BoxedTask) {
+    fn schedule_task_attach(&mut self) -> Result<()> {
+        let log = self.log.clone();
+        let task = future::lazy(move || {
+            debug!(log, "subprocess: delaying attach process");
+            Ok(())
+        });
+
+        let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
+        let task = task.and_then(move |_| {
+            tokio_timer::sleep(delay).map_err(|e| panic!(e))
+        });
+
+        let log = self.log.clone();
+        let task = task.and_then(move |_| {
+            debug!(log, "subprocess: attach started");
+            Ok(())
+        });
+
+        // TODO: run attach process
+        let delay = Duration::from_millis(5000);
+        let task = task.and_then(move |_| {
+            tokio_timer::sleep(delay).map_err(|e| panic!(e))
+        });
+
+        let state = self.state.clone();
+        let log = self.log.clone();
+        let task = task.and_then(move |_| {
+            *state.borrow_mut() = State::Normal;
+            debug!(log, "subprocess: attach finished");
+            Ok(())
+        });
+
+        self.schedule_process_task(Box::new(task))
+    }
+
+    fn schedule_task_detach(&mut self) -> Result<()> {
+        let log = self.log.clone();
+        let task = future::lazy(move || {
+            debug!(log, "subprocess: detach started");
+            Ok(())
+        });
+
+        // TODO: run detach process
+        let delay = Duration::from_millis(5000);
+        let task = task.and_then(move |_| {
+            tokio_timer::sleep(delay).map_err(|e| panic!(e))
+        });
+
+        let log = self.log.clone();
+        let state = self.state.clone();
+        let device = self.device.clone();
+        let task = task.and_then(move |_| {
+            debug!(log, "subprocess: detach finished");
+
+            if *state.borrow() == State::Detaching {
+                debug!(log, "opening latch");
+                device.commands().latch_open()?;
+            } else {
+                debug!(log, "state changed during detachment, not opening latch");
+            }
+
+            Ok(())
+        });
+
+        self.schedule_process_task(Box::new(task))
+    }
+
+    fn schedule_task_detach_abort(&mut self) -> Result<()> {
+        let log = self.log.clone();
+        let task = future::lazy(move || {
+            debug!(log, "subprocess: detach_abort started");
+            Ok(())
+        });
+
+        // TODO: run detach_abort process
+        let delay = Duration::from_millis(5000);
+        let task = task.and_then(move |_| {
+            tokio_timer::sleep(delay).map_err(|e| panic!(e))
+        });
+
+        let state = self.state.clone();
+        let log = self.log.clone();
+        let task = task.and_then(move |_| {
+            *state.borrow_mut() = State::Normal;
+            debug!(log, "subprocess: detach_abort finished");
+            Ok(())
+        });
+
+        self.schedule_process_task(Box::new(task))
+    }
+
+    fn schedule_process_task(&mut self, task: BoxedTask) -> Result<()> {
         let res = self.task_queue_tx.try_send(Box::new(task));
         if let Err(e) = res {
             if e.is_full() {
-                warn!(self.log, "process queue is full, dropping task")
+                warn!(self.log, "process queue is full, dropping task");
             } else {
-                unreachable!("process queue closed")
+                unreachable!("process queue closed");
             }
         }
+
+        Ok(())
     }
 }
 
