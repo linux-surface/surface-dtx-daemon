@@ -12,11 +12,15 @@ use std::time::Duration;
 use std::convert::TryFrom;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::process::Command;
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
 
 use tokio::prelude::*;
 use tokio::runtime::current_thread::Runtime;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
+use tokio_process::CommandExt;
 
 use slog::{Logger, trace, debug, info, warn, error, o};
 
@@ -148,9 +152,12 @@ type BoxedTask = Box<dyn Future<Item=(), Error=Error>>;
 struct EventHandler {
     log: Logger,
     config: Config,
+
     task_queue_tx: Sender<BoxedTask>,
+
     device: Rc<Device>,
     state: Rc<RefCell<State>>,
+
     ignore_request: u32,
 }
 
@@ -158,7 +165,14 @@ impl EventHandler {
     fn new(log: Logger, config: Config, device: Rc<Device>, task_queue_tx: Sender<BoxedTask>) -> Self {
         let state = Rc::new(RefCell::new(State::Normal));
 
-        EventHandler { log, config, device, task_queue_tx, state, ignore_request: 0 }
+        EventHandler {
+            log,
+            config,
+            task_queue_tx,
+            device,
+            state,
+            ignore_request: 0,
+        }
     }
 
 
@@ -277,83 +291,139 @@ impl EventHandler {
             tokio_timer::sleep(delay).map_err(|e| panic!(e))
         });
 
-        let log = self.log.clone();
-        let task = task.and_then(move |_| {
-            debug!(log, "subprocess: attach started");
-            Ok(())
-        });
+        let handler = self.config.handler.attach.as_ref();
+        if let Some(ref path) = handler {
+            let mut command = Command::new(path);
+            command.current_dir(&self.config.dir);
 
-        // TODO: run attach process
-        let delay = Duration::from_millis(5000);
-        let task = task.and_then(move |_| {
-            tokio_timer::sleep(delay).map_err(|e| panic!(e))
-        });
+            let log = self.log.clone();
+            let task = task.and_then(move |_| {
+                debug!(log, "subprocess: attach started");
+                command.output_async()
+            });
 
-        let state = self.state.clone();
-        let log = self.log.clone();
-        let task = task.and_then(move |_| {
-            *state.borrow_mut() = State::Normal;
-            debug!(log, "subprocess: attach finished");
-            Ok(())
-        });
+            let log = self.log.clone();
+            let state = self.state.clone();
+            let task = task.map_err(|e| e.into()).and_then(move |output| {
+                debug!(log, "subprocess: attach finished");
+                log_process_output(&log, &output);
 
-        self.schedule_process_task(Box::new(task))
+                *state.borrow_mut() = State::Normal;
+                Ok(())
+            });
+
+            self.schedule_process_task(Box::new(task))
+
+        } else {
+            let log = self.log.clone();
+            let state = self.state.clone();
+            let task = task.map_err(|e| e.into()).and_then(move |_| {
+                debug!(log, "subprocess: no attach handler executable");
+
+                *state.borrow_mut() = State::Normal;
+                Ok(())
+            });
+
+            self.schedule_process_task(Box::new(task))
+        }
     }
 
     fn schedule_task_detach(&mut self) -> Result<()> {
-        let log = self.log.clone();
-        let task = future::lazy(move || {
-            debug!(log, "subprocess: detach started");
-            Ok(())
-        });
+        let handler = self.config.handler.detach.as_ref();
 
-        // TODO: run detach process
-        let delay = Duration::from_millis(5000);
-        let task = task.and_then(move |_| {
-            tokio_timer::sleep(delay).map_err(|e| panic!(e))
-        });
+        if let Some(ref path) = handler {
+            let mut command = Command::new(path);
+            command.current_dir(&self.config.dir);
+            command.env("EXIT_DETACH_COMMENCE", "0");
+            command.env("EXIT_DETACH_ABORT", "1");
 
-        let log = self.log.clone();
-        let state = self.state.clone();
-        let device = self.device.clone();
-        let task = task.and_then(move |_| {
-            debug!(log, "subprocess: detach finished");
+            let log = self.log.clone();
+            let task = future::lazy(move || {
+                debug!(log, "subprocess: detach started");
+                command.output_async()
+            });
 
-            if *state.borrow() == State::Detaching {
-                debug!(log, "opening latch");
-                device.commands().latch_open()?;
-            } else {
-                debug!(log, "state changed during detachment, not opening latch");
-            }
+            let log = self.log.clone();
+            let state = self.state.clone();
+            let device = self.device.clone();
+            let task = task.map_err(|e| e.into()).and_then(move |output| {
+                debug!(log, "subprocess: detach finished");
+                log_process_output(&log, &output);
 
-            Ok(())
-        });
+                if *state.borrow() == State::Detaching {
+                    if output.status.success() {
+                        debug!(log, "commencing detach, opening latch");
+                        device.commands().latch_open()?;
+                    } else {
+                        info!(log, "aborting detach");
+                        device.commands().latch_request()?;
+                    }
+                } else {
+                    debug!(log, "state changed during detachment, not opening latch");
+                }
 
-        self.schedule_process_task(Box::new(task))
+                Ok(())
+            });
+
+            self.schedule_process_task(Box::new(task))
+
+        } else {
+            let log = self.log.clone();
+            let state = self.state.clone();
+            let device = self.device.clone();
+            let task = future::lazy(move || {
+                debug!(log, "subprocess: no detach handler executable");
+
+                if *state.borrow() == State::Detaching {
+                    debug!(log, "commencing detach, opening latch");
+                    device.commands().latch_open()?;
+                } else {
+                    debug!(log, "state changed during detachment, not opening latch");
+                }
+
+                Ok(())
+            });
+
+            self.schedule_process_task(Box::new(task))
+        }
     }
 
     fn schedule_task_detach_abort(&mut self) -> Result<()> {
-        let log = self.log.clone();
-        let task = future::lazy(move || {
-            debug!(log, "subprocess: detach_abort started");
-            Ok(())
-        });
+        let handler = self.config.handler.detach_abort.as_ref();
 
-        // TODO: run detach_abort process
-        let delay = Duration::from_millis(5000);
-        let task = task.and_then(move |_| {
-            tokio_timer::sleep(delay).map_err(|e| panic!(e))
-        });
+        if let Some(ref path) = handler {
+            let mut command = Command::new(path);
+            command.current_dir(&self.config.dir);
 
-        let state = self.state.clone();
-        let log = self.log.clone();
-        let task = task.and_then(move |_| {
-            *state.borrow_mut() = State::Normal;
-            debug!(log, "subprocess: detach_abort finished");
-            Ok(())
-        });
+            let log = self.log.clone();
+            let task = future::lazy(move || {
+                debug!(log, "subprocess: detach_abort started");
+                command.output_async()
+            });
 
-        self.schedule_process_task(Box::new(task))
+            let log = self.log.clone();
+            let state = self.state.clone();
+            let task = task.map_err(|e| e.into()).and_then(move |output| {
+                debug!(log, "subprocess: detach_abort finished");
+                log_process_output(&log, &output);
+
+                *state.borrow_mut() = State::Normal;
+                Ok(())
+            });
+
+            self.schedule_process_task(Box::new(task))
+        } else {
+            let log = self.log.clone();
+            let state = self.state.clone();
+            let task = future::lazy(move || {
+                debug!(log, "subprocess: no detach_abort handler executable");
+
+                *state.borrow_mut() = State::Normal;
+                Ok(())
+            });
+
+            self.schedule_process_task(Box::new(task))
+        }
     }
 
     fn schedule_process_task(&mut self, task: BoxedTask) -> Result<()> {
@@ -373,3 +443,19 @@ impl EventHandler {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State { Normal, Detaching, Aborting, Attaching }
+
+fn log_process_output(log: &Logger, output: &std::process::Output) {
+    if !output.status.success() || output.stdout.len() > 0 || output.stderr.len() > 0 {
+        info!(log, "subprocess terminated with {}", output.status);
+    }
+
+    if output.stdout.len() > 0 {
+        let stdout = OsStr::from_bytes(&output.stdout);
+        info!(log, "subprocess terminated with stdout: {:?}", stdout);
+    }
+
+    if output.stderr.len() > 0 {
+        let stderr = OsStr::from_bytes(&output.stderr);
+        info!(log, "subprocess terminated with stderr: {:?}", stderr);
+    }
+}
