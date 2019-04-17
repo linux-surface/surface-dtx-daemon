@@ -141,7 +141,10 @@ fn setup_event_task(log: Logger, config: Config, device: Device, task_queue_tx: 
 fn setup_process_task(task_queue_rx: Receiver<BoxedTask>)
     -> impl Future<Item=(), Error=Error>
 {
-    task_queue_rx.map_err(|e| panic!(e)).for_each(|task| {
+    // an error here (sender closed while trying to receive) is a failure in program logic
+    let task = task_queue_rx.map_err(|e| panic!(e));
+
+    task.for_each(|task| {
         task
     })
 }
@@ -288,6 +291,7 @@ impl EventHandler {
 
         let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
         let task = task.and_then(move |_| {
+            // any error here (shutdown, at_capacity) is a failure in program logic
             tokio_timer::sleep(delay).map_err(|e| panic!(e))
         });
 
