@@ -11,6 +11,9 @@ const DEFAULT_CONFIG_PATH: &'static str = "/etc/surface-dtx/surface-dtx.cfg";
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Config {
+    #[serde(skip)]
+    pub dir: PathBuf,
+
     #[serde(default)]
     pub log: Log,
 
@@ -70,10 +73,13 @@ impl Config {
         use std::io::Read;
 
         let mut buf = Vec::new();
-        let mut file = std::fs::File::open(path)?;
+        let mut file = std::fs::File::open(path.as_ref())?;
         file.read_to_end(&mut buf)?;
 
-        Ok(toml::from_slice(&buf)?)
+        let mut config: Config = toml::from_slice(&buf)?;
+        config.dir = path.as_ref().parent().unwrap().into();
+
+        Ok(config)
     }
 }
 
