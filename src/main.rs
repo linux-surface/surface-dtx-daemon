@@ -8,13 +8,11 @@ use config::Config;
 mod device;
 use device::{Device, Event, RawEvent, OpMode, LatchState, ConnectionState};
 
-use std::time::Duration;
 use std::convert::TryFrom;
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::{cell::RefCell, rc::Rc};
+use std::time::Duration;
 use std::process::Command;
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
 use tokio::prelude::*;
 use tokio::runtime::current_thread::Runtime;

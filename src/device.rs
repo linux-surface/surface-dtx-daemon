@@ -1,10 +1,8 @@
 use crate::error::Result;
 
 use std::convert::TryFrom;
-use std::fs::File;
+use std::{fs::File, path::Path, os::unix::io::AsRawFd};
 use std::io::BufReader;
-use std::os::unix::io::AsRawFd;
-use std::path::Path;
 
 use futures::try_ready;
 
