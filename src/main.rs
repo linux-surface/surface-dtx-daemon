@@ -11,6 +11,7 @@ use device::{Device, Event, RawEvent, OpMode, LatchState, ConnectionState};
 use std::time::Duration;
 use std::convert::TryFrom;
 use std::rc::Rc;
+use std::cell::RefCell;
 
 use tokio::prelude::*;
 use tokio::runtime::current_thread::Runtime;
@@ -146,13 +147,17 @@ type BoxedTask = Box<dyn Future<Item=(), Error=Error>>;
 
 struct EventHandler {
     log: Logger,
-    device: Rc<Device>,
     task_queue_tx: Sender<BoxedTask>,
+    device: Rc<Device>,
+    state: Rc<RefCell<State>>,
+    ignore_request: u32,
 }
 
 impl EventHandler {
     fn new(log: Logger, device: Rc<Device>, task_queue_tx: Sender<BoxedTask>) -> Self {
-        EventHandler { log, device, task_queue_tx }
+        let state = Rc::new(RefCell::new(State::Normal));
+
+        EventHandler { log, device, task_queue_tx, state, ignore_request: 0 }
     }
 
 
@@ -188,34 +193,69 @@ impl EventHandler {
 
 
     fn on_opmode_change(&mut self, mode: OpMode) {
-        debug!(self.log, "op-mode changed: {:?}", mode);                // TODO
-    }
-
-    fn on_connection_change(&mut self, state: ConnectionState) {
-        debug!(self.log, "connection changed: {:?}", state);            // TODO
+        debug!(self.log, "device mode changed: {:?}", mode);                    // TODO
     }
 
     fn on_latch_state_change(&mut self, state: LatchState) {
-        debug!(self.log, "latch-state changed: {:?}", state);           // TODO
+        debug!(self.log, "latch-state changed: {:?}", state);                   // TODO
+    }
+
+    fn on_connection_change(&mut self, state: ConnectionState) {
+        debug!(self.log, "clipboard connection changed: {:?}", state);
+
+        match (*self.state.borrow(), state) {
+            (State::Detaching, ConnectionState::Disconnected) => {
+                *self.state.borrow_mut() = State::Normal;
+                debug!(self.log, "detachment procedure completed");
+            },
+            (State::Normal, ConnectionState::Connected) => {
+                *self.state.borrow_mut() = State::Attaching;
+
+                // TODO: schedule 'attach' process
+            },
+            _ => {
+                error!(self.log, "invalid state"; "state" => ?(*self.state.borrow(), state));
+            },
+        }
     }
 
     fn on_detach_request(&mut self) {
-        debug!(self.log, "detach requested");                           // TODO
+        debug!(self.log, "clipboard detach requested");
 
-        let log = self.log.clone();
-        let dev = self.device.clone();
+        if self.ignore_request > 0 {
+            self.ignore_request -= 1;
+            return;
+        }
 
-        let task = tokio_timer::sleep(Duration::from_secs(5)).map_err(|e| panic!(e));
-        let task = task.and_then(move |_| {
-            debug!(log, "detachment process completed");
-            dev.commands().latch_open()
-        });
+        match *self.state.borrow() {
+            State::Normal => {
+                *self.state.borrow_mut() = State::Detaching;
 
-        self.queue_proc_task(Box::new(task));
+                // TODO: schedule 'detach' process
+            },
+            State::Detaching => {
+                *self.state.borrow_mut() = State::Aborting;
+
+                // TODO: schedule 'abort_detach' process
+            },
+            State::Aborting | State::Attaching => {
+                // TODO: cancel current request, ignore_request += 1
+            },
+        }
     }
 
     fn on_detach_error(&mut self, err: u8) {
-        debug!(self.log, "detach error: {}", err);                      // TODO
+        if err == 0x02 {
+            debug!(self.log, "detachment procedure: timed out");
+        } else {
+            error!(self.log, "unknown error event"; "code" => err);
+        }
+
+        if *self.state.borrow() == State::Detaching {
+            *self.state.borrow_mut() = State::Aborting;
+
+            // TODO: schedule 'abort_detach' process
+        }
     }
 
 
@@ -230,3 +270,7 @@ impl EventHandler {
         }
     }
 }
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State { Normal, Detaching, Aborting, Attaching }
