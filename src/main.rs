@@ -71,12 +71,12 @@ fn main() -> CliResult {
     // only critical errors will reach this point
     let log = logger.clone();
     let event_task = event_task.map(|_| ()).map_err(move |(e, _)| {
-        critical_error(&log, &e);
+        panic_with_critical_error(&log, &e);
     });
 
     let log = logger.clone();
     let process_task = process_task.map(|_| ()).map_err(move |e| {
-        critical_error(&log, &e);
+        panic_with_critical_error(&log, &e);
     });
 
     debug!(logger, "running...");
@@ -468,7 +468,7 @@ fn log_process_output(log: &Logger, output: &std::process::Output) {
     }
 }
 
-fn critical_error(log: &Logger, err: &Error) -> ! {
+fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {
     crit!(log, "Error: {}", err);
     for cause in err.iter_causes() {
         crit!(log, "Caused by: {}", cause);
