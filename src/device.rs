@@ -1,10 +1,6 @@
-use crate::error::Result;
-
 use std::convert::TryFrom;
 use std::{fs::File, path::Path, os::unix::io::AsRawFd};
 use std::io::BufReader;
-
-use futures::try_ready;
 
 use tokio::prelude::*;
 use tokio::reactor::PollEvented2;
@@ -12,8 +8,10 @@ use tokio::reactor::PollEvented2;
 use nix::{ioctl_none, ioctl_read};
 use nix::{request_code_read, request_code_none, convert_ioctl_res, ioc};
 
+use crate::error::{Result, ResultExt, Error, ErrorKind};
 
-const DEFAULT_EVENT_FILE_PATH: &'static str = "/dev/surface_dtx";
+
+const DEFAULT_EVENT_FILE_PATH: &str = "/dev/surface_dtx";
 
 
 #[derive(Debug)]
@@ -27,12 +25,12 @@ impl Device {
     }
 
     pub fn open_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path)?;
+        let file = File::open(path).context(ErrorKind::DeviceAccess)?;
         Ok(Device { file })
     }
 
     pub fn events(&self) -> Result<EventStream> {
-        EventStream::from_file(self.file.try_clone()?)
+        EventStream::from_file(self.file.try_clone().context(ErrorKind::DeviceAccess)?)
     }
 
     #[allow(unused)]
@@ -54,29 +52,42 @@ pub struct EventStream {
 
 impl EventStream {
     fn from_file(file: File) -> Result<Self> {
-        let file = tokio_file_unix::File::new_nb(file)?;
-        Ok(EventStream { reader: file.into_reader(&Default::default())? })
+        let file = tokio_file_unix::File::new_nb(file).context(ErrorKind::DeviceAccess)?;
+        let reader = file.into_reader(&Default::default()).context(ErrorKind::DeviceAccess)?;
+        Ok(EventStream { reader })
     }
 }
 
 impl Stream for EventStream {
     type Item = RawEvent;
-    type Error = std::io::Error;
+    type Error = Error;
 
-    fn poll(&mut self) -> Poll<Option<RawEvent>, std::io::Error> {
+    fn poll(&mut self) -> Poll<Option<RawEvent>, Error> {
         let mut buf = [0; 4];
-        let num = try_ready!(self.reader.poll_read(&mut buf[..]));
 
-        if num != 4 {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "incomplete event"))
-        } else {
-            let evt = RawEvent {
-                typ:  buf[0],
-                code: buf[1],
-                arg0: buf[2],
-                arg1: buf[3],
-            };
-            Ok(Async::Ready(Some(evt)))
+        match self.reader.poll_read(&mut buf[..]) {
+            Ok(Async::NotReady) => {
+                Ok(Async::NotReady)
+            },
+            Ok(Async::Ready(4)) => {
+                let evt = RawEvent {
+                    typ:  buf[0],
+                    code: buf[1],
+                    arg0: buf[2],
+                    arg1: buf[3],
+                };
+                Ok(Async::Ready(Some(evt)))
+            },
+            Ok(Async::Ready(_)) => {
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "incomplete event"))
+                    .context(ErrorKind::DeviceIo)
+                    .map_err(Into::into)
+            },
+            Err(e) => {
+                Err(e)
+                    .context(ErrorKind::DeviceIo)
+                    .map_err(Into::into)
+            },
         }
     }
 }
@@ -180,16 +191,16 @@ impl TryFrom<RawEvent> for Event {
             RawEvent { typ: 0x11, code: 0x0c, arg0, arg1 } if arg0 <= 1 => {
                 Event::ConectionChange { state: ConnectionState::try_from(arg0).unwrap(), arg1 }
             },
-            RawEvent { typ: 0x11, code: 0x0d, arg0, arg1: _ } if arg0 <= 2 => {
+            RawEvent { typ: 0x11, code: 0x0d, arg0, .. } if arg0 <= 2 => {
                 Event::OpModeChange { mode: OpMode::try_from(arg0).unwrap() }
             },
-            RawEvent { typ: 0x11, code: 0x0e, arg0: _, arg1: _ } => {
+            RawEvent { typ: 0x11, code: 0x0e, .. } => {
                 Event::DetachRequest
             },
-            RawEvent { typ: 0x11, code: 0x0f, arg0, arg1: _ } => {
+            RawEvent { typ: 0x11, code: 0x0f, arg0, .. } => {
                 Event::DetachError { err: arg0 }
             },
-            RawEvent { typ: 0x11, code: 0x11, arg0, arg1: _ } if arg0 <= 1 => {
+            RawEvent { typ: 0x11, code: 0x11, arg0, .. } if arg0 <= 1 => {
                 Event::LatchStateChange { state: LatchState::try_from(arg0).unwrap() }
             },
             _ => return Err(evt)
@@ -207,25 +218,25 @@ pub struct Commands<'a> {
 impl<'a> Commands<'a> {
     #[allow(unused)]
     pub fn latch_lock(&self) -> Result<()> {
-        unsafe { dtx_latch_lock(self.device.as_raw_fd())? };
+        unsafe { dtx_latch_lock(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
     }
 
     #[allow(unused)]
     pub fn latch_unlock(&self) -> Result<()> {
-        unsafe { dtx_latch_unlock(self.device.as_raw_fd())? };
+        unsafe { dtx_latch_unlock(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
     }
 
     #[allow(unused)]
     pub fn latch_request(&self) -> Result<()> {
-        unsafe { dtx_latch_request(self.device.as_raw_fd())? };
+        unsafe { dtx_latch_request(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
     }
 
     #[allow(unused)]
     pub fn latch_open(&self) -> Result<()> {
-        unsafe { dtx_latch_open(self.device.as_raw_fd())? };
+        unsafe { dtx_latch_open(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
     }
 
@@ -234,13 +245,20 @@ impl<'a> Commands<'a> {
         use std::io;
 
         let mut opmode: u32 = 0;
-        unsafe { dtx_get_opmode(self.device.as_raw_fd(), &mut opmode as *mut u32)? };
+        unsafe {
+            dtx_get_opmode(self.device.as_raw_fd(), &mut opmode as *mut u32)
+                .context(ErrorKind::DeviceIo)?
+        };
 
         match opmode {
             0 => Ok(OpMode::Tablet),
             1 => Ok(OpMode::Laptop),
             2 => Ok(OpMode::Studio),
-            x => Err(io::Error::new(io::ErrorKind::InvalidData, "invalid opmode").into()),
+            x => {
+                Err(io::Error::new(io::ErrorKind::InvalidData, "invalid opmode"))
+                    .context(ErrorKind::DeviceIo)
+                    .map_err(Into::into)
+            },
         }
     }
 }

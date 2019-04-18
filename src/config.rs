@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use serde;
 use serde::{Serialize, Deserialize};
 
-use crate::error::Result;
+use crate::error::{Result, ResultExt, ErrorKind};
 
 
-const DEFAULT_CONFIG_PATH: &'static str = "/etc/surface-dtx/surface-dtx.cfg";
+const DEFAULT_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx.cfg";
 
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -73,10 +73,10 @@ impl Config {
         use std::io::Read;
 
         let mut buf = Vec::new();
-        let mut file = std::fs::File::open(path.as_ref())?;
-        file.read_to_end(&mut buf)?;
+        let mut file = std::fs::File::open(path.as_ref()).context(ErrorKind::Config)?;
+        file.read_to_end(&mut buf).context(ErrorKind::Config)?;
 
-        let mut config: Config = toml::from_slice(&buf)?;
+        let mut config: Config = toml::from_slice(&buf).context(ErrorKind::Config)?;
         config.dir = path.as_ref().parent().unwrap().into();
 
         Ok(config)

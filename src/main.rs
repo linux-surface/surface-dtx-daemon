@@ -20,9 +20,9 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
 use tokio_process::CommandExt;
 
-use slog::{Logger, trace, debug, info, warn, error, o};
+use slog::{Logger, trace, debug, info, warn, error, crit, o};
 
-use crate::error::{Error, Result};
+use crate::error::{Result, ResultExt, CliResult, Error, ErrorKind};
 
 
 fn logger(config: &Config) -> Logger {
@@ -43,7 +43,7 @@ fn logger(config: &Config) -> Logger {
     slog::Logger::root(drain, o!())
 }
 
-fn main() -> Result<()> {
+fn main() -> CliResult {
     let matches = cli::app().get_matches();
 
     let config = match matches.value_of("config") {
@@ -69,16 +69,18 @@ fn main() -> Result<()> {
     let event_task = event_task.select(signal);
 
     // only critical errors will reach this point
-    let event_task = event_task.map(|_| ()).map_err(|(e, _)| {
-        panic!(format!("{}", e))
+    let log = logger.clone();
+    let event_task = event_task.map(|_| ()).map_err(move |(e, _)| {
+        critical_error(&log, &e);
     });
 
-    let process_task = process_task.map(|_| ()).map_err(|e| {
-        panic!(format!("{}", e))
+    let log = logger.clone();
+    let process_task = process_task.map(|_| ()).map_err(move |e| {
+        critical_error(&log, &e);
     });
 
     debug!(logger, "running...");
-    Runtime::new()?
+    Runtime::new().context(ErrorKind::Runtime)?
         .spawn(process_task)
         .spawn(event_task)
         .run().unwrap();
@@ -97,7 +99,7 @@ where
         let sigterm = Signal::new(SIGTERM).flatten_stream();
 
         sigint.select(sigterm).into_future()
-            .map_err(|(e, _)| Error::from(e))
+            .map_err(|(e, _)| Error::with(e, ErrorKind::Runtime))
     };
 
     signal.map(move |(sig, next)| {
@@ -184,7 +186,7 @@ impl EventHandler {
             Ok(Event::OpModeChange { mode }) => {
                 self.on_opmode_change(mode)
             },
-            Ok(Event::ConectionChange { state, arg1: _ }) => {
+            Ok(Event::ConectionChange { state, .. }) => {
                 self.on_connection_change(state)
             },
             Ok(Event::LatchStateChange { state }) => {
@@ -306,7 +308,8 @@ impl EventHandler {
 
             let log = self.log.clone();
             let state = self.state.clone();
-            let task = task.map_err(|e| e.into()).and_then(move |output| {
+            let task = task.map_err(|e| Error::with(e, ErrorKind::Process));
+            let task = task.and_then(move |output| {
                 debug!(log, "subprocess: attach finished");
                 log_process_output(&log, &output);
 
@@ -319,7 +322,8 @@ impl EventHandler {
         } else {
             let log = self.log.clone();
             let state = self.state.clone();
-            let task = task.map_err(|e| e.into()).and_then(move |_| {
+            let task = task.map_err(|e| Error::with(e, ErrorKind::Runtime));
+            let task = task.and_then(move |_| {
                 debug!(log, "subprocess: no attach handler executable");
 
                 *state.borrow_mut() = State::Normal;
@@ -348,7 +352,8 @@ impl EventHandler {
             let log = self.log.clone();
             let state = self.state.clone();
             let device = self.device.clone();
-            let task = task.map_err(|e| e.into()).and_then(move |output| {
+            let task = task.map_err(|e| Error::with(e, ErrorKind::Process));
+            let task = task.and_then(move |output| {
                 debug!(log, "subprocess: detach finished");
                 log_process_output(&log, &output);
 
@@ -405,7 +410,8 @@ impl EventHandler {
 
             let log = self.log.clone();
             let state = self.state.clone();
-            let task = task.map_err(|e| e.into()).and_then(move |output| {
+            let task = task.map_err(|e| Error::with(e, ErrorKind::Process));
+            let task = task.and_then(move |output| {
                 debug!(log, "subprocess: detach_abort finished");
                 log_process_output(&log, &output);
 
@@ -447,17 +453,26 @@ impl EventHandler {
 enum State { Normal, Detaching, Aborting, Attaching }
 
 fn log_process_output(log: &Logger, output: &std::process::Output) {
-    if !output.status.success() || output.stdout.len() > 0 || output.stderr.len() > 0 {
+    if !output.status.success() || !output.stdout.is_empty() || !output.stderr.is_empty() {
         info!(log, "subprocess terminated with {}", output.status);
     }
 
-    if output.stdout.len() > 0 {
+    if !output.stdout.is_empty() {
         let stdout = OsStr::from_bytes(&output.stdout);
         info!(log, "subprocess terminated with stdout: {:?}", stdout);
     }
 
-    if output.stderr.len() > 0 {
+    if !output.stderr.is_empty() {
         let stderr = OsStr::from_bytes(&output.stderr);
         info!(log, "subprocess terminated with stderr: {:?}", stderr);
     }
+}
+
+fn critical_error(log: &Logger, err: &Error) -> ! {
+    crit!(log, "Error: {}", err);
+    for cause in err.iter_causes() {
+        crit!(log, "Caused by: {}", cause);
+    }
+
+    panic!(format!("{}", err))
 }
