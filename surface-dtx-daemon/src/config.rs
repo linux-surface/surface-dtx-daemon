@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use crate::error::{Result, ResultExt, ErrorKind};
 
 
-const DEFAULT_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx.cfg";
+const DEFAULT_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-daemon.conf";
 
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]

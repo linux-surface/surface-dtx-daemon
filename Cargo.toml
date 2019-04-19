@@ -1,32 +1,9 @@
-[package]
-name = "surface-dtx"
-version = "0.1.0"
-authors = ["Maximilian Luz <luzmaximilian@gmail.com>"]
-edition = "2018"
+[workspace]
 
-[[bin]]
-name = "surface-dtx-daemon"
-path = "src/main.rs"
-
-[dependencies]
-clap = "2.33.0"
-dbus = "0.6.4"
-dbus-tokio = "0.3.0"
-failure = "0.1.5"
-libc = "0.2.51"
-nix = "0.13.0"
-serde = { version = "1.0.90", features = ['derive'] }
-slog = "2.4.1"
-slog-term = "2.4.0"
-tokio = "0.1.18"
-tokio-file-unix = "0.5.1"
-tokio-process = "0.2.3"
-tokio-signal = "0.2.7"
-tokio-timer = "0.2.10"
-toml = "0.5.0"
-
-[build-dependencies]
-clap = "2.33.0"
+members = [
+    "surface-dtx-daemon",
+    "surface-dtx-userd",
+]
 
 [profile.release]
 lto = true
