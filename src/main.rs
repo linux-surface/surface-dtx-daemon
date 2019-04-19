@@ -8,6 +8,9 @@ use config::Config;
 mod device;
 use device::{Device, Event, RawEvent, OpMode, LatchState, ConnectionState};
 
+mod service;
+use service::{Service, DetachState};
+
 use std::convert::TryFrom;
 use std::{cell::RefCell, rc::Rc};
 use std::time::Duration;
@@ -53,24 +56,36 @@ fn main() -> CliResult {
 
     let logger = logger(&config);
 
+    let mut runtime = Runtime::new().context(ErrorKind::Runtime)?;
+
     // set-up task-queue for external processes
     let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(32);
 
+    // dbus service
+    let connection: Rc<_> = dbus::Connection::get_private(dbus::BusType::System)
+        .context(ErrorKind::DBusService)?
+        .into();
+
+    let serv = service::build(logger.clone(), connection)?;
+    let serv_task = serv.task(&mut runtime).context(ErrorKind::DBusService)?;
+
     // event handler
     let device = Device::open()?;
-    let event_task = setup_event_task(logger.clone(), config, device, queue_tx)?;
+    let event_task = setup_event_task(logger.clone(), config, serv, device, queue_tx)?;
 
     // process queue handler
     let process_task = setup_process_task(queue_rx).shared();
     let shutdown_task = process_task.clone().map(|_| ());
 
-    // shutdown handler
+    // shutdown handler and main task
     let signal = setup_shutdown_signal(logger.clone(), shutdown_task);
-    let event_task = event_task.select(signal);
+    let main_task = signal
+        .select(event_task).map(|_| ()).map_err(|(e, _)| panic!(e))
+        .select(serv_task).map(|_| ()).map_err(|(e, _)| panic!(e));
 
     // only critical errors will reach this point
     let log = logger.clone();
-    let event_task = event_task.map(|_| ()).map_err(move |(e, _)| {
+    let main_task = main_task.map_err(move |e| {
         panic_with_critical_error(&log, &e);
     });
 
@@ -80,10 +95,9 @@ fn main() -> CliResult {
     });
 
     debug!(logger, "running...");
-    Runtime::new().context(ErrorKind::Runtime)?
-        .spawn(process_task)
-        .spawn(event_task)
-        .run().unwrap();
+    runtime.spawn(main_task);
+    runtime.spawn(process_task);
+    runtime.run().unwrap();
 
     Ok(())
 }
@@ -125,12 +139,13 @@ where
     })
 }
 
-fn setup_event_task(log: Logger, config: Config, device: Device, task_queue_tx: Sender<BoxedTask>)
+fn setup_event_task(log: Logger, config: Config, service: Service,
+                    device: Device, task_queue_tx: Sender<BoxedTask>)
     -> Result<impl Future<Item=(), Error=Error>>
 {
     let events = device.events()?.map_err(Error::from);
 
-    let mut handler = EventHandler::new(log, config, Rc::new(device), task_queue_tx);
+    let mut handler = EventHandler::new(log, config, Rc::new(service), Rc::new(device), task_queue_tx);
     let task = events.for_each(move |evt| {
         handler.handle(evt)
     });
@@ -155,22 +170,24 @@ type BoxedTask = Box<dyn Future<Item=(), Error=Error>>;
 struct EventHandler {
     log: Logger,
     config: Config,
-
-    task_queue_tx: Sender<BoxedTask>,
-
+    service: Rc<Service>,
     device: Rc<Device>,
     state: Rc<RefCell<State>>,
-
+    task_queue_tx: Sender<BoxedTask>,
     ignore_request: u32,
 }
 
 impl EventHandler {
-    fn new(log: Logger, config: Config, device: Rc<Device>, task_queue_tx: Sender<BoxedTask>) -> Self {
+    fn new(log: Logger, config: Config, service: Rc<Service>, device: Rc<Device>,
+           task_queue_tx: Sender<BoxedTask>)
+        -> Self
+    {
         let state = Rc::new(RefCell::new(State::Normal));
 
         EventHandler {
             log,
             config,
+            service,
             task_queue_tx,
             device,
             state,
@@ -211,22 +228,29 @@ impl EventHandler {
 
 
     fn on_opmode_change(&mut self, mode: OpMode) -> Result<()> {
-        debug!(self.log, "device mode changed: {:?}", mode);                    // TODO
+        debug!(self.log, "device mode changed"; "mode" => ?mode);
+        self.service.set_device_mode(mode);
         Ok(())
     }
 
     fn on_latch_state_change(&mut self, state: LatchState) -> Result<()> {
-        debug!(self.log, "latch-state changed: {:?}", state);                   // TODO
+        debug!(self.log, "latch-state changed"; "state" => ?state);
+
+        if state == LatchState::Open {
+            self.service.signal_detach_state_change(DetachState::DetachReady)
+        }
+
         Ok(())
     }
 
     fn on_connection_change(&mut self, connection: ConnectionState) -> Result<()> {
-        debug!(self.log, "clipboard connection changed: {:?}", connection);
+        debug!(self.log, "clipboard connection changed"; "state" => ?connection);
 
         let state = *self.state.borrow();
         match (state, connection) {
             (State::Detaching, ConnectionState::Disconnected) => {
                 *self.state.borrow_mut() = State::Normal;
+                self.service.signal_detach_state_change(DetachState::DetachCompleted);
                 debug!(self.log, "detachment procedure completed");
                 Ok(())
             },
@@ -257,6 +281,7 @@ impl EventHandler {
             State::Detaching => {
                 debug!(self.log, "clipboard detach-abort requested");
                 *self.state.borrow_mut() = State::Aborting;
+                self.service.signal_detach_state_change(DetachState::DetachAborted);
                 self.schedule_task_detach_abort()
             },
             State::Aborting | State::Attaching => {
@@ -308,12 +333,14 @@ impl EventHandler {
 
             let log = self.log.clone();
             let state = self.state.clone();
+            let service = self.service.clone();
             let task = task.map_err(|e| Error::with(e, ErrorKind::Process));
             let task = task.and_then(move |output| {
                 debug!(log, "subprocess: attach finished");
                 log_process_output(&log, &output);
 
                 *state.borrow_mut() = State::Normal;
+                service.signal_detach_state_change(DetachState::AttachCompleted);
                 Ok(())
             });
 
@@ -322,11 +349,13 @@ impl EventHandler {
         } else {
             let log = self.log.clone();
             let state = self.state.clone();
+            let service = self.service.clone();
             let task = task.map_err(|e| Error::with(e, ErrorKind::Runtime));
             let task = task.and_then(move |_| {
                 debug!(log, "subprocess: no attach handler executable");
 
                 *state.borrow_mut() = State::Normal;
+                service.signal_detach_state_change(DetachState::AttachCompleted);
                 Ok(())
             });
 

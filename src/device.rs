@@ -100,6 +100,16 @@ pub enum OpMode {
     Studio,
 }
 
+impl OpMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OpMode::Tablet => "tablet",
+            OpMode::Laptop => "laptop",
+            OpMode::Studio => "studio",
+        }
+    }
+}
+
 impl TryFrom<u8> for OpMode {
     type Error = u8;
 

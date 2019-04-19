@@ -25,6 +25,9 @@ pub enum ErrorKind {
 
     #[fail(display = "Failed to run external process")]
     Process,
+
+    #[fail(display = "DBus service failure")]
+    DBusService,
 }
 
 
@@ -97,5 +100,33 @@ impl std::fmt::Debug for CliError {
         }
 
         Ok(())
+    }
+}
+
+
+#[derive(Debug)]
+pub struct ErrorStr {
+    message: &'static str,
+}
+
+impl From<&'static str> for ErrorStr {
+    fn from(message: &'static str) -> Self {
+        ErrorStr { message }
+    }
+}
+
+impl Fail for ErrorStr {
+    fn cause(&self) -> Option<&Fail> {
+        None
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        None
+    }
+}
+
+impl std::fmt::Display for ErrorStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.message, f)
     }
 }
