@@ -1,5 +1,5 @@
 mod error;
-use error::{Error, ErrorKind, ErrorStr, ResultExt, CliResult};
+use error::{Error, ErrorKind, ErrorStr, Result, ResultExt, CliResult};
 
 mod cli;
 
@@ -7,8 +7,10 @@ mod config;
 use config::Config;
 
 mod notify;
+use notify::{Notification, NotificationHandle, Timeout};
 
 use std::rc::Rc;
+use std::cell::Cell;
 
 use slog::{Logger, debug, crit, o};
 
@@ -16,6 +18,7 @@ use tokio::prelude::*;
 use tokio::reactor::Handle;
 use tokio::runtime::current_thread::Runtime;
 
+use dbus::Message;
 use dbus_tokio::AConnection;
 
 
@@ -58,39 +61,107 @@ fn main() -> CliResult {
     sys_c.add_match("type=signal,sender=org.surface.dtx,member=DetachStateChanged")
         .context(ErrorKind::DBus)?;
 
-    sys_c.add_match("type=signal,sender=org.surface.dtx,member=PropertiesChanged")
-        .context(ErrorKind::DBus)?;
-
     let mut rt = Runtime::new().context(ErrorKind::Runtime)?;
     let sys_ac = AConnection::new(sys_c, Handle::default(), &mut rt).unwrap();
     let ses_ac = AConnection::new(ses_c, Handle::default(), &mut rt).unwrap();
 
-    let messages = sys_ac.messages()
+    let task = sys_ac.messages()
         .map_err(ErrorStr::from)
-        .context(ErrorKind::DBus)?;
+        .context(ErrorKind::DBus)?
+        .map_err(|_| Error::from(ErrorKind::DBus));
 
-    let task = messages.map_err(|_| Error::from(ErrorKind::DBus));
-    let task = task.for_each(move |mut m| {
-        let m = m.as_result().context(ErrorKind::DBus)?;
-        debug!(logger, "message received: {:#?}", m);
+    let mut handler = MessageHandler::new(logger, ses_ac);
+    let task = task.for_each(move |m| {
+        handler.handle(m)
+    });
 
-        use dbus::SignalArgs;
-        use dbus::stdintf::org_freedesktop_dbus::PropertiesPropertiesChanged;
+    rt.block_on(task)?;
+    Ok(())
+}
 
-        if let Some(sig) = PropertiesPropertiesChanged::from_message(&m) {
-            debug!(logger, "properties changed: {:#?}", sig);
 
-            let mut notif = notify::Notification::new("Surface DTX");
-            notif.set_summary("Device mode changed");
-            notif.set_body(format!("New value: {}", "TODO"));
-            notif.add_hint_s("image-path", "input-tablet");
-            notif.add_hint_s("category", "device");
-            notif.add_hint_b("transient", true);
+struct MessageHandler {
+    log: Logger,
+    connection: AConnection,
+    detach_notif: Rc<Cell<Option<NotificationHandle>>>,
+}
 
-            let task = notif.send(&ses_ac)?;
+impl MessageHandler {
+    fn new(log: Logger, connection: AConnection) -> Self {
+        MessageHandler { log, connection, detach_notif: Rc::new(Cell::new(None)) }
+    }
 
-            let log = logger.clone();
-            let task = task.map(|_| ()).map_err(move |e| {
+    fn handle(&mut self, mut message: Message) -> Result<()> {
+        let m = message.as_result().context(ErrorKind::DBus)?;
+        debug!(self.log, "message received"; "message" => ?m);
+
+        if m.interface() != Some("org.surface.dtx".into()) {
+            return Ok(())
+        }
+
+        if m.member() != Some("DetachStateChanged".into()) {
+            return Ok(())
+        }
+
+        let state: &str = m.read1().context(ErrorKind::DBus)?;
+        debug!(self.log, "detach-state changed"; "value" => state);
+
+        match state {
+            "detach-ready" => {
+                self.notify_detach_ready()
+            },
+            "detach-completed" | "detach-aborted" => {
+                self.notify_detach_completed()
+            },
+            "attach-completed" => {
+                self.notify_attach_completed()
+            },
+            _ => {
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid detach-state"))
+                    .context(ErrorKind::DBus)
+                    .map_err(Into::into)
+            },
+        }
+    }
+
+    fn notify_detach_ready(&mut self) -> Result<()> {
+        let mut notif = Notification::new("Surface DTX");
+        notif.set_summary("Surface DTX");
+        notif.set_body("Clipboard can be detached.");
+        notif.add_hint_s("image-path", "input-tablet");
+        notif.add_hint_s("category", "device");
+        notif.add_hint_u8("urgency", 2);
+        notif.add_hint_b("resident", true);
+        notif.set_expires(Timeout::Never);
+
+        let task = notif.show(&self.connection)?;
+
+        let log = self.log.clone();
+        let notif_handle = self.detach_notif.clone();
+        let task = task.map(move |h| {
+            debug!(log, "added notification {}", h.id);
+            notif_handle.set(Some(h))
+        });
+
+        let log = self.log.clone();
+        let task = task.map_err(move |e| {
+            panic_with_critical_error(&log, &e)
+        });
+
+        tokio::runtime::current_thread::spawn(task);
+
+        Ok(())
+    }
+
+    fn notify_detach_completed(&mut self) -> Result<()> {
+        let notif = self.detach_notif.replace(None);
+
+        if let Some(notif) = notif {
+            debug!(self.log, "closing notification {}", notif.id);
+            let task = notif.close(&self.connection)?;
+
+            let log = self.log.clone();
+            let task = task.map_err(move |e| {
                 panic_with_critical_error(&log, &e)
             });
 
@@ -98,10 +169,27 @@ fn main() -> CliResult {
         }
 
         Ok(())
-    });
+    }
 
-    rt.block_on(task)?;
-    Ok(())
+    fn notify_attach_completed(&mut self) -> Result<()> {
+        let mut notif = Notification::new("Surface DTX");
+        notif.set_summary("Surface DTX");
+        notif.set_body("Clipboard attached.");
+        notif.add_hint_s("image-path", "input-tablet");
+        notif.add_hint_s("category", "device");
+        notif.add_hint_b("transient", true);
+
+        let task = notif.show(&self.connection)?;
+
+        let log = self.log.clone();
+        let task = task.map(|_| ()).map_err(move |e| {
+            panic_with_critical_error(&log, &e)
+        });
+
+        tokio::runtime::current_thread::spawn(task);
+
+        Ok(())
+    }
 }
 
 fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {

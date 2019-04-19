@@ -23,8 +23,18 @@ pub struct Notification<'a> {
     expires:  i32,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct NotificationHandle {
-    id: u32,
+    pub id: u32,
+}
+
+
+#[allow(unused)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Timeout {
+    Unspecified,
+    Never,
+    Millis(u32),
 }
 
 
@@ -75,8 +85,19 @@ impl<'a> Notification<'a> {
         self.hints.insert(key.into(), Variant(Box::new(value) as Box<dyn RefArg>));
     }
 
-    pub fn set_expires(&mut self, timeout: Option<u32>) {
-        self.expires = timeout.map(|v| v as i32).unwrap_or(-1);
+    pub fn add_hint_u8<K>(&mut self, key: K, value: u8)
+    where
+        K: Into<String>,
+    {
+        self.hints.insert(key.into(), Variant(Box::new(value) as Box<dyn RefArg>));
+    }
+
+    pub fn set_expires(&mut self, timeout: Timeout) {
+        self.expires = match timeout {
+            Timeout::Unspecified => -1,
+            Timeout::Never => 0,
+            Timeout::Millis(t) => t as _,
+        }
     }
 
     pub fn into_message(self) -> Message {
@@ -98,7 +119,7 @@ impl<'a> Notification<'a> {
         m
     }
 
-    pub fn send(self, conn: &AConnection) -> Result<impl Future<Item=NotificationHandle, Error=Error>> {
+    pub fn show(self, conn: &AConnection) -> Result<impl Future<Item=NotificationHandle, Error=Error>> {
         let task = conn.method_call(self.into_message())
             .map_err(ErrorStr::from)
             .context(ErrorKind::DBus)?
@@ -120,14 +141,13 @@ impl<'a> Into<Message> for Notification<'a> {
 }
 
 
-#[allow(unused)]
 impl NotificationHandle {
     pub fn close(self, conn: &AConnection) -> Result<impl Future<Item=(), Error=Error>> {
         let m = Message::new_method_call(
                 "org.freedesktop.Notifications",
                 "/org/freedesktop/Notifications",
                 "org.freedesktop.Notifications",
-                "Notify").unwrap();
+                "CloseNotification").unwrap();
 
         let m = m.append1(self.id);
 
