@@ -119,7 +119,7 @@ pub fn build(log: Logger, connection: Rc<Connection>) -> Result<Service> {
         .into();
 
     // device-mode property
-    let device_mode_val = Arc::new(Cell::new(OpMode::Laptop));      // TODO: ensure that this is current
+    let device_mode_val = Arc::new(Cell::new(OpMode::Laptop));
     let device_mode = factory.property::<&str, _>("DeviceMode", ())
         .emits_changed(EmitsChangedSignal::True)
         .access(Access::Read);

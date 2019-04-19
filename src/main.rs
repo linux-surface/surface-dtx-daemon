@@ -66,12 +66,12 @@ fn main() -> CliResult {
         .context(ErrorKind::DBusService)?
         .into();
 
-    let serv = service::build(logger.clone(), connection)?;
+    let serv: Rc<_> = service::build(logger.clone(), connection)?.into();
     let serv_task = serv.task(&mut runtime).context(ErrorKind::DBusService)?;
 
     // event handler
-    let device = Device::open()?;
-    let event_task = setup_event_task(logger.clone(), config, serv, device, queue_tx)?;
+    let device: Rc<_> = Device::open()?.into();
+    let event_task = setup_event_task(logger.clone(), config, serv.clone(), device.clone(), queue_tx)?;
 
     // process queue handler
     let process_task = setup_process_task(queue_rx).shared();
@@ -94,9 +94,21 @@ fn main() -> CliResult {
         panic_with_critical_error(&log, &e);
     });
 
+    // make sure the device-mode in the service is up to date
+    let init_task = future::lazy(move || {
+        serv.set_device_mode(device.commands().get_opmode()?);
+        Ok(())
+    });
+
+    let log = logger.clone();
+    let init_task = init_task.map_err(move |e| {
+        panic_with_critical_error(&log, &e);
+    });
+
     debug!(logger, "running...");
     runtime.spawn(main_task);
     runtime.spawn(process_task);
+    runtime.spawn(init_task);
     runtime.run().unwrap();
 
     Ok(())
@@ -139,13 +151,13 @@ where
     })
 }
 
-fn setup_event_task(log: Logger, config: Config, service: Service,
-                    device: Device, task_queue_tx: Sender<BoxedTask>)
+fn setup_event_task(log: Logger, config: Config, service: Rc<Service>,
+                    device: Rc<Device>, task_queue_tx: Sender<BoxedTask>)
     -> Result<impl Future<Item=(), Error=Error>>
 {
     let events = device.events()?.map_err(Error::from);
 
-    let mut handler = EventHandler::new(log, config, Rc::new(service), Rc::new(device), task_queue_tx);
+    let mut handler = EventHandler::new(log, config, service, device, task_queue_tx);
     let task = events.for_each(move |evt| {
         handler.handle(evt)
     });
