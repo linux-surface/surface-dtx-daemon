@@ -6,7 +6,8 @@ use serde::{Serialize, Deserialize};
 use crate::error::{Result, ResultExt, ErrorKind};
 
 
-const DEFAULT_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-userd.conf";
+const SYSTEM_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-userd.conf";
+const USER_CONFIG_LOCAL_PATH: &str = "surface-dtx/surface-dtx-userd.conf";
 
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -38,8 +39,18 @@ pub enum LogLevel {
 
 impl Config {
     pub fn load() -> Result<Config> {
-        if Path::new(DEFAULT_CONFIG_PATH).exists() {
-            Config::load_file(DEFAULT_CONFIG_PATH)
+        let mut user_config = std::env::var_os("XDG_CONFIG_HOME")
+            .and_then(|d| if d != "" { Some(d) } else { None })
+            .map(|d| PathBuf::from(d))
+            .unwrap_or_else(|| PathBuf::from("~/.config"));
+        user_config.push(USER_CONFIG_LOCAL_PATH);
+
+        println!("{:?}", user_config);
+
+        if user_config.exists() {
+            Config::load_file(user_config)
+        } else if Path::new(SYSTEM_CONFIG_PATH).exists() {
+            Config::load_file(SYSTEM_CONFIG_PATH)
         } else {
             Ok(Config::default())
         }
