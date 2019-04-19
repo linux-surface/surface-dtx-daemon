@@ -1,12 +1,20 @@
 mod error;
-use error::CliResult;
+use error::{Error, ErrorKind, ErrorStr, ResultExt, CliResult};
 
 mod cli;
 
 mod config;
 use config::Config;
 
-use slog::{Logger, o};
+use std::rc::Rc;
+
+use slog::{Logger, debug, o};
+
+use tokio::prelude::*;
+use tokio::reactor::Handle;
+use tokio::runtime::current_thread::Runtime;
+
+use dbus_tokio::AConnection;
 
 
 fn logger(config: &Config) -> Logger {
@@ -37,5 +45,36 @@ fn main() -> CliResult {
 
     let logger = logger(&config);
 
+    let conn: Rc<_> = dbus::Connection::get_private(dbus::BusType::System)
+        .context(ErrorKind::DBus)?
+        .into();
+
+    conn.add_match("type=signal,sender=org.surface.dtx,member=DetachStateChanged")
+        .context(ErrorKind::DBus)?;
+
+    conn.add_match("type=signal,sender=org.surface.dtx,member=PropertiesChanged")
+        .context(ErrorKind::DBus)?;
+
+    let mut rt = Runtime::new().context(ErrorKind::Runtime)?;
+    let aconn = AConnection::new(conn, Handle::default(), &mut rt).unwrap();
+
+    let messages = aconn.messages()
+        .map_err(ErrorStr::from)
+        .context(ErrorKind::DBus)?;
+
+    let task = messages.for_each(move |m| {
+        use dbus::SignalArgs;
+        use dbus::stdintf::org_freedesktop_dbus::PropertiesPropertiesChanged;
+
+        debug!(logger, "signal received: {:#?}", m);
+
+        if let Some(sig) = PropertiesPropertiesChanged::from_message(&m) {
+            debug!(logger, "properties changed: {:#?}", sig);
+        }
+
+        Ok(())
+    });
+
+    rt.block_on(task).map_err(|_| Error::from(ErrorKind::DBus))?;
     Ok(())
 }
