@@ -9,5 +9,5 @@ _This will eventually replace the current python implementation at https://githu
 _Until then, please refer to that repo._
 
 Current status:
-- The core daemon functionality is implemented, i.e. you can specify executables as handlers to be executed on detach/attach.
-- Notifications are not implemented yet.
+- In terms of functions, this is now up-to-date with the original python implementation.
+Packaging will follow shortly.
