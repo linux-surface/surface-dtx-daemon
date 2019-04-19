@@ -1,4 +1,5 @@
 mod error;
+use error::{Result, ResultExt, CliResult, Error, ErrorKind};
 
 mod cli;
 
@@ -25,7 +26,6 @@ use tokio_process::CommandExt;
 
 use slog::{Logger, trace, debug, info, warn, error, crit, o};
 
-use crate::error::{Result, ResultExt, CliResult, Error, ErrorKind};
 
 
 fn logger(config: &Config) -> Logger {
