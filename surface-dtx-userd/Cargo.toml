@@ -8,6 +8,9 @@ build = "build.rs"
 [dependencies]
 clap = "2.33.0"
 failure = "0.1.5"
+serde = { version = "1.0.90", features = ['derive'] }
+slog = "2.4.1"
+slog-term = "2.4.0"
 toml = "0.5.0"
 
 [build-dependencies]
