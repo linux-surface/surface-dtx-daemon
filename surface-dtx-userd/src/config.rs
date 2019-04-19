@@ -45,8 +45,6 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("~/.config"));
         user_config.push(USER_CONFIG_LOCAL_PATH);
 
-        println!("{:?}", user_config);
-
         if user_config.exists() {
             Config::load_file(user_config)
         } else if Path::new(SYSTEM_CONFIG_PATH).exists() {
