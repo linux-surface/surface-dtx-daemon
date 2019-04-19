@@ -6,9 +6,11 @@ mod cli;
 mod config;
 use config::Config;
 
+mod notify;
+
 use std::rc::Rc;
 
-use slog::{Logger, debug, o};
+use slog::{Logger, debug, crit, o};
 
 use tokio::prelude::*;
 use tokio::reactor::Handle;
@@ -45,36 +47,68 @@ fn main() -> CliResult {
 
     let logger = logger(&config);
 
-    let conn: Rc<_> = dbus::Connection::get_private(dbus::BusType::System)
+    let sys_c: Rc<_> = dbus::Connection::get_private(dbus::BusType::System)
         .context(ErrorKind::DBus)?
         .into();
 
-    conn.add_match("type=signal,sender=org.surface.dtx,member=DetachStateChanged")
+    let ses_c: Rc<_> = dbus::Connection::get_private(dbus::BusType::Session)
+        .context(ErrorKind::DBus)?
+        .into();
+
+    sys_c.add_match("type=signal,sender=org.surface.dtx,member=DetachStateChanged")
         .context(ErrorKind::DBus)?;
 
-    conn.add_match("type=signal,sender=org.surface.dtx,member=PropertiesChanged")
+    sys_c.add_match("type=signal,sender=org.surface.dtx,member=PropertiesChanged")
         .context(ErrorKind::DBus)?;
 
     let mut rt = Runtime::new().context(ErrorKind::Runtime)?;
-    let aconn = AConnection::new(conn, Handle::default(), &mut rt).unwrap();
+    let sys_ac = AConnection::new(sys_c, Handle::default(), &mut rt).unwrap();
+    let ses_ac = AConnection::new(ses_c, Handle::default(), &mut rt).unwrap();
 
-    let messages = aconn.messages()
+    let messages = sys_ac.messages()
         .map_err(ErrorStr::from)
         .context(ErrorKind::DBus)?;
 
-    let task = messages.for_each(move |m| {
+    let task = messages.map_err(|_| Error::from(ErrorKind::DBus));
+    let task = task.for_each(move |mut m| {
+        let m = m.as_result().context(ErrorKind::DBus)?;
+        debug!(logger, "message received: {:#?}", m);
+
         use dbus::SignalArgs;
         use dbus::stdintf::org_freedesktop_dbus::PropertiesPropertiesChanged;
 
-        debug!(logger, "signal received: {:#?}", m);
-
         if let Some(sig) = PropertiesPropertiesChanged::from_message(&m) {
             debug!(logger, "properties changed: {:#?}", sig);
+
+            let mut notif = notify::Notification::new("Surface DTX");
+            notif.set_summary("Device mode changed");
+            notif.set_body(format!("New value: {}", "TODO"));
+            notif.add_hint_s("image-path", "input-tablet");
+            notif.add_hint_s("category", "device");
+            notif.add_hint_b("transient", true);
+
+            let task = notif.send(&ses_ac)?;
+
+            let log = logger.clone();
+            let task = task.map(|_| ()).map_err(move |e| {
+                panic_with_critical_error(&log, &e)
+            });
+
+            tokio::runtime::current_thread::spawn(task);
         }
 
         Ok(())
     });
 
-    rt.block_on(task).map_err(|_| Error::from(ErrorKind::DBus))?;
+    rt.block_on(task)?;
     Ok(())
+}
+
+fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {
+    crit!(log, "Error: {}", err);
+    for cause in err.iter_causes() {
+        crit!(log, "Caused by: {}", cause);
+    }
+
+    panic!(format!("{}", err))
 }
