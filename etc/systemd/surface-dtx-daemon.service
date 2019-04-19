@@ -1,0 +1,11 @@
+[Unit]
+Description=Surface Detachment System (DTX) Daemon
+Documentation=https://github.com/qzed/linux-surface-dtx-daemon
+After=basic.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/surface-dtx-daemon
+
+[Install]
+WantedBy=multi-user.target
