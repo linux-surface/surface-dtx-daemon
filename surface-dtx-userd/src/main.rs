@@ -1,4 +1,6 @@
+mod cli;
+
 
 fn main() {
-    println!("TODO");
+    let matches = cli::app().get_matches();
 }
