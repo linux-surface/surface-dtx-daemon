@@ -13,7 +13,7 @@ failure = "0.1.5"
 libc = "0.2.51"
 nix = "0.13.0"
 serde = { version = "1.0.90", features = ['derive'] }
-slog = "2.4.1"
+slog = { version = "2.4.1", features = ['release_max_level_debug'] }
 slog-term = "2.4.0"
 tokio = "0.1.18"
 tokio-file-unix = "0.5.1"
