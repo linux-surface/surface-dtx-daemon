@@ -43,15 +43,15 @@ fn logger(config: &Config) -> Logger {
     let drain = std::sync::Mutex::new(drain)
         .fuse();
 
-    slog::Logger::root(drain, o!())
+    Logger::root(drain, o!())
 }
 
 fn main() -> CliResult {
     let matches = cli::app().get_matches();
 
     let config = match matches.value_of("config") {
-        Some(path) => config::Config::load_file(path)?,
-        None       => config::Config::load()?,
+        Some(path) => Config::load_file(path)?,
+        None       => Config::load()?,
     };
 
     let logger = logger(&config);
