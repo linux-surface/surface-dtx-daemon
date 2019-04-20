@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+
+pkgdir = debian/surface-dtx-daemon
+
+clean:
+	dh clean
+	cargo clean
+
+build:
+	dh build
+	env CARGO_TARGET_DIR="${PWD}/target" CARGO_INCREMENTAL=0 cargo build --release --locked
+
+binary:
+	dh binary --without dh_shlibdeps
+
+install:
+	# binary files
+	install -D -m755 "target/release/surface-dtx-daemon" "${pkgdir}/usr/bin/surface-dtx-daemon"
+	install -D -m755 "target/release/surface-dtx-userd" "${pkgdir}/usr/bin/surface-dtx-userd"
+
+	# application files
+	install -D -m644 "etc/dtx/surface-dtx-daemon.conf" "${pkgdir}/etc/surface-dtx/surface-dtx-daemon.conf"
+	install -D -m644 "etc/dtx/surface-dtx-userd.conf" "${pkgdir}/etc/surface-dtx/surface-dtx-userd.conf"
+	install -D -m755 "etc/dtx/attach.sh" "${pkgdir}/etc/surface-dtx/attach.sh"
+	install -D -m755 "etc/dtx/detach.sh" "${pkgdir}/etc/surface-dtx/detach.sh"
+
+	# systemd service files
+	install -D -m644 "etc/systemd/surface-dtx-daemon.service" "${pkgdir}/usr/lib/systemd/system/surface-dtx-daemon.service"
+	install -D -m644 "etc/systemd/surface-dtx-userd.service" "${pkgdir}/usr/lib/systemd/user/surface-dtx-userd.service"
+
+	# dbus config file
+	install -D -m644 "etc/dbus/org.surface.dtx.conf" "${pkgdir}/etc/dbus-1/system.d/org.surface.dtx.conf"
+
+	# completion files
+	install -D -m644 "target/surface-dtx-daemon.bash" "${pkgdir}/usr/share/bash-completion/completions/surface-dtx-daemon"
+	install -D -m644 "target/surface-dtx-userd.bash" "${pkgdir}/usr/share/bash-completion/completions/surface-dtx-userd"
+
+	install -D -m644 "target/_surface-dtx-daemon" "${pkgdir}/usr/share/zsh/vendor-completions/_surface-dtx-daemon"
+	install -D -m644 "target/_surface-dtx-userd" "${pkgdir}/usr/share/zsh/vendor-completions/_surface-dtx-userd"
+
+	install -D -m644 "target/surface-dtx-daemon.fish" "${pkgdir}/usr/share/fish/completions/surface-dtx-daemon.fish"
+	install -D -m644 "target/surface-dtx-userd.fish" "${pkgdir}/usr/share/fish/completions/surface-dtx-userd.fish"
+
+# reauired for cross-packaging from Arch
+# may be moved to lxc-container once debian has rustc >= 1.34
+override_dh_shlibdeps:
+	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info
