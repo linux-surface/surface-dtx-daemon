@@ -57,6 +57,7 @@ fn main() -> CliResult {
     let logger = logger(&config);
 
     let mut runtime = Runtime::new().context(ErrorKind::Runtime)?;
+    let device: Rc<_> = Device::open()?.into();
 
     // set-up task-queue for external processes
     let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(32);
@@ -66,11 +67,10 @@ fn main() -> CliResult {
         .context(ErrorKind::DBusService)?
         .into();
 
-    let serv: Rc<_> = service::build(logger.clone(), connection)?.into();
+    let serv: Rc<_> = service::build(logger.clone(), connection, device.clone())?.into();
     let serv_task = serv.task(&mut runtime).context(ErrorKind::DBusService)?;
 
     // event handler
-    let device: Rc<_> = Device::open()?.into();
     let event_task = setup_event_task(logger.clone(), config, serv.clone(), device.clone(), queue_tx)?;
 
     // process queue handler

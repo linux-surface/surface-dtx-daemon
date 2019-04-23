@@ -1,5 +1,5 @@
 use crate::error::{Result, ResultExt, Error, ErrorKind, ErrorStr};
-use crate::device::OpMode;
+use crate::device::{Device, OpMode};
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use slog::{Logger, debug};
 
 use dbus::{Connection, SignalArgs};
 use dbus::tree::{MTFn, ObjectPath, Interface, Signal, Property, Access, EmitsChangedSignal};
+use dbus::tree::MethodErr;
 
 use dbus_tokio::AConnection;
 use dbus_tokio::tree::{ATree, AFactory, ATreeServer};
@@ -107,7 +108,7 @@ impl Service {
 }
 
 
-pub fn build(log: Logger, connection: Rc<Connection>) -> Result<Service> {
+pub fn build(log: Logger, connection: Rc<Connection>, device: Rc<Device>) -> Result<Service> {
     let factory = AFactory::new_afn::<()>();
 
     connection.register_name("org.surface.dtx", dbus::NameFlag::ReplaceExisting as u32)
@@ -132,13 +133,22 @@ pub fn build(log: Logger, connection: Rc<Connection>) -> Result<Service> {
 
     let device_mode = Arc::new(device_mode);
 
+    // request method
+    let dtxreq = factory.method("Request", (), move |m| {
+        match device.commands().latch_request() {
+            Ok(()) => { Ok(vec![m.msg.method_return()]) },
+            Err(e) => { Err(MethodErr::failed(&e)) },
+        }
+    });
+
     // interface
     let iface: Arc<_> = factory.interface("org.surface.dtx", ())
+        .add_m(dtxreq)
         .add_s(state_signal.clone())
         .add_p(device_mode.clone())
         .into();
 
-    // interface
+    // object
     let object: Arc<_> = factory.object_path("/org/surface/dtx", ())
         .introspectable()
         .add(iface.clone())
