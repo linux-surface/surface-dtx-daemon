@@ -20,7 +20,7 @@ The split into two daemons is required as notifications can only be sent on a pe
 
 ## Installation
 
-If you have an Arch Linux or Debian based distributions, have a look at the [releases page][releases] for official packages.
+If you have an Arch Linux (Manjaro, ...) or Debian (Ubuntu, ...) based distribution, have a look at the [releases page][releases] for official packages.
 After installation you may want to:
 - enable the systemd service for the system daemon using `systemctl enable surface-dtx-daemon.service`.
 - enable the systemd service for the per-user daemon using `systemctl enable --user surface-dtx-userd.service`.
@@ -38,6 +38,25 @@ Here you can specify the handler-scripts for supported events and other options.
 All options are explanined in these files, the configuration language is TOML, default attach and detach handler scripts are included. 
 
 Furthermore, a per-user configuration for the user daemon can also be created under `$XDG_CONFIG_HOME/surface-dtx/surface-dtx-userd.conf` (if not set, `$XDG_CONFIG_HOME` defaults to `.config`).
+
+## Building a Package from Source
+
+### Arch Linux
+
+Use the PKGBUILD under `pkg/arch`, i.e. to build a pakcage and directly install it run 
+```
+cd pkg/arch && makepkg -fsi
+```
+
+### Debian/Ubuntu
+
+Use the `makedeb` script provided under `pkg/deb`, i.e. run
+```
+./pkg/deb/makedeb
+```
+from the root project directory.
+You may need to install the `build-essential` and `devscripts` packages beforehand.
+The final package will be in the `pkg/deb` directory.
 
 
 [releases]: https://github.com/qzed/linux-surface-dtx-daemon/releases
