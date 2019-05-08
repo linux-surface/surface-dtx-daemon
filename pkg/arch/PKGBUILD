@@ -7,7 +7,7 @@ pkgdesc="Surface Detachment System (DTX) Daemon"
 url="https://github.com/qzed/linux-surface-dtx-daemon"
 license=('MIT')
 arch=('x86_64')
-depends=('dbus')
+depends=('dbus' 'gcc-libs')
 makedepends=('rust' 'cargo')
 install=surface-dtx-daemon.install
 

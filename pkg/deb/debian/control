@@ -6,5 +6,5 @@ Build-Depends: build-essential, debhelper (>= 11), cargo, rustc (>= 1.34.0), lib
 
 Package: surface-dtx-daemon
 Architecture: amd64
-Depends: libdbus-1-3
+Depends: libc6 (>= 2.19), libgcc1 (>= 1:4.9.2), libdbus-1-3
 Description: Surface Detachment System (DTX) Daemon
