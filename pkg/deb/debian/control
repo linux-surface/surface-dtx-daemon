@@ -2,7 +2,7 @@ Source: surface-dtx-daemon
 Section: misc
 Priority: optional
 Maintainer: Maximilian Luz <luzmaximilian@gmail.com>
-Build-Depends: build-essential, debhelper (>= 11), cargo, rustc (>= 1.34.0), libdbus-glib-1-dev 
+Build-Depends: build-essential, debhelper (>= 10), cargo, rustc (>= 1.34.0), libdbus-glib-1-dev 
 
 Package: surface-dtx-daemon
 Architecture: amd64

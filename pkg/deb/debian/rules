@@ -1,4 +1,5 @@
 #!/usr/bin/make -f
+export DH_VERBOSE = 1
 
 pkgdir = debian/surface-dtx-daemon
 
@@ -10,10 +11,7 @@ build:
 	dh build
 	env CARGO_TARGET_DIR="${PWD}/target" CARGO_INCREMENTAL=0 cargo build --release --locked
 
-binary:
-	dh binary --without dh_shlibdeps
-
-install:
+override_dh_install:
 	# binary files
 	install -D -m755 "target/release/surface-dtx-daemon" "${pkgdir}/usr/bin/surface-dtx-daemon"
 	install -D -m755 "target/release/surface-dtx-userd" "${pkgdir}/usr/bin/surface-dtx-userd"
@@ -41,7 +39,5 @@ install:
 	install -D -m644 "target/surface-dtx-daemon.fish" "${pkgdir}/usr/share/fish/completions/surface-dtx-daemon.fish"
 	install -D -m644 "target/surface-dtx-userd.fish" "${pkgdir}/usr/share/fish/completions/surface-dtx-userd.fish"
 
-# reauired for cross-packaging from Arch
-# may be moved to lxc-container once debian has rustc >= 1.34
-override_dh_shlibdeps:
-	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info
+%:
+	dh $@

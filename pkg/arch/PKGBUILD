@@ -1,7 +1,7 @@
 # Maintainer: Maximilian Luz <luzmaximilian@gmail.com>
 
 pkgname=surface-dtx-daemon
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Surface Detachment System (DTX) Daemon"
 url="https://github.com/qzed/linux-surface-dtx-daemon"

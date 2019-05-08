@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-branch="develop"
+branch="master"
 basepath="pkg/deb"
 
 

@@ -1,3 +1,10 @@
+surface-dtx-daemon (0.1.1) unstable; urgency=medium
+
+  * Add request function to dbus interface.
+  * Fix libc/libgcc dependencies.
+
+ --  <build@build-deb8>  Wed, 08 May 2019 19:34:02 +0000
+
 surface-dtx-daemon (0.1.0) unstable; urgency=medium
 
   * Initial release.
