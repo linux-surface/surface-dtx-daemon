@@ -1,3 +1,9 @@
+surface-dtx-daemon (0.1.2) unstable; urgency=medium
+
+  * Add udev rule to ensure device is available.
+
+ --  <build@build-deb8>  Thu, 09 May 2019 22:54:39 +0000
+
 surface-dtx-daemon (0.1.1) unstable; urgency=medium
 
   * Add request function to dbus interface.
