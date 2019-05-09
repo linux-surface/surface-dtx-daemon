@@ -51,6 +51,9 @@ package() {
     # dbus config file
     install -D -m644 "src/etc/dbus/org.surface.dtx.conf" "$pkgdir/etc/dbus-1/system.d/org.surface.dtx.conf"
 
+    # udev rules
+    install -D -m644 "src/etc/udev/40-surface_dtx.rules" "$pkgdir/etc/udev/rules.d/40-surface_dtx.rules"
+
     # completion files
     install -D -m644 "src/target/surface-dtx-daemon.bash" "$pkgdir/usr/share/bash-completion/completions/surface-dtx-daemon"
     install -D -m644 "src/target/surface-dtx-userd.bash" "$pkgdir/usr/share/bash-completion/completions/surface-dtx-userd"
