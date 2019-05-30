@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-branch="master"
+branch="HEAD"
 basepath="pkg/deb"
 
 
@@ -35,7 +35,7 @@ prepare() {
 
 build() {
     pushd "$basepath/src"
-    dpkg-buildpackage -b -d
+    dpkg-buildpackage -b -d -us -uc
     popd
 }
 
