@@ -100,6 +100,7 @@ impl<'a> Notification<'a> {
         }
     }
 
+    #[allow(clippy::let_and_return)]
     pub fn into_message(self) -> Message {
         let m = Message::new_method_call(
                 "org.freedesktop.Notifications",
