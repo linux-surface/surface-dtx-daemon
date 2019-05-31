@@ -1,5 +1,10 @@
 # Linux DTX Daemon for Surface Books
 
+[![Build Status]][travis]
+
+[Build Status]: https://api.travis-ci.org/qzed/linux-surface-dtx-daemon.svg?branch=master
+[travis]: https://travis-ci.org/qzed/linux-surface-dtx-daemon
+
 Linux User-Space Detachment System (DTX) Daemon for the Surface ACPI Driver (and Surface Books).
 Currently only the Surface Book 2 is supported, due to lack of driver-support on the Surface Book 1.
 This may change in the future.
