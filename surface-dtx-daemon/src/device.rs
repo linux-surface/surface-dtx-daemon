@@ -6,7 +6,6 @@ use tokio::prelude::*;
 use tokio::reactor::PollEvented2;
 
 use nix::{ioctl_none, ioctl_read};
-use nix::{request_code_read, request_code_none, convert_ioctl_res, ioc};
 
 use crate::error::{Result, ResultExt, Error, ErrorKind};
 

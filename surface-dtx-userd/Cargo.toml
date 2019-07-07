@@ -15,11 +15,11 @@ clap = "2.33.0"
 dbus = "0.6.4"
 dbus-tokio = "0.3.0"
 failure = "0.1.5"
-serde = { version = "1.0.90", features = ['derive'] }
+serde = { version = "1.0.94", features = ['derive'] }
 slog = { version = "2.4.1", features = ['release_max_level_debug'] }
 slog-term = "2.4.0"
-tokio = "0.1.18"
-toml = "0.5.0"
+tokio = "0.1.22"
+toml = "0.5.1"
 
 [build-dependencies]
 clap = "2.33.0"
