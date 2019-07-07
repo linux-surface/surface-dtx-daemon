@@ -49,7 +49,7 @@ impl From<Context<ErrorKind>> for Error {
 }
 
 impl Fail for Error {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.inner.cause()
     }
 
@@ -107,7 +107,7 @@ impl From<&'static str> for ErrorStr {
 }
 
 impl Fail for ErrorStr {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         None
     }
 
