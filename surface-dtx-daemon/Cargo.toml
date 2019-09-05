@@ -1,6 +1,6 @@
 [package]
 name = "surface-dtx-daemon"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Maximilian Luz <luzmaximilian@gmail.com>"]
 description = "Surface Detachment System (DTX) Daemon"
 
