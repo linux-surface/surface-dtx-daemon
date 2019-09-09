@@ -33,13 +33,16 @@ jobs:
   - stage: release
     if: tag IS present
     script:
-    - rm -f "./pkg/deb/*.deb"
+    - rm -f "./pkg/deb/*.deb" "./pkg/bin/*.tar.xz"
     - ./pkg/deb/makedeb
+    - ./pkg/bin/makebin
     deploy:
       provider: releases
 
       file_glob: true
-      file: "./pkg/deb/*.deb"
+      file:
+      - "./pkg/deb/*.deb"
+      - "./pkg/bin/*.tar.xz"
 
       api_key:
         secure: dkTA3k5dY7VrJdRsAvu7MCUmy3VLjPLn9FeG29UHWEHgNoF65Dwc5+Q1kLJRPitLL/3Mpms4UFhL/iXY+0JhFKgoCzAYtoedyMMBQNhgfstFdBQCtR8ESV1ax0q+G9amyjwZmaw3eMxao7VS227mHwK1iJxSbDnvpr+oy8ZH/JvRB4HxoCnTPfl2gMxBE/uA19P+OK5Mp4ZsteYnlZ6Kb+Y3/lg079LAsigW8DqET2FKy9A5Y1QbgnnwYWBbDSxNjVKF5xMujFvHk42/hwWFWkTYSBoo61fBNPZmc5o8w8UAV3yKsSnvhsuyiJ6WYSBUa2B2NDIbRsOdEkzIOW9wuSR67QSYyEAiPp5JSt1iKzNA0N4fhdyOjEIQQXLSW5XqElh2ffyqcaoZGQf+Wc2EtvYk3FAHODNiheuYspOEuBRM5BUp4QJQBoUb0qPdmZAtBeyVtrfnjvumaMnu29lA/igDa531LrQELol7AECOZBwuXdz0+u7JSZN/mG7Bq9iSBfPVoHZCoTgIpJUcnzdSSMlWG7zVBWXEwTbo1mb2MNc0RIUNhf/QgG3E+LCyEvzPWn1Gas+rXi038iB3m+oMZg9sbJVtn124wYlq4H1+QDK4tt3mtSjamy/y+HDdu9Cirlk5GmXqeFYfBOyI/SJdcBA1dTMsSZHg83oOvOQVjXM=
@@ -54,7 +57,7 @@ branches:
   - master
   - ci
   - "/^v\\d.*/"
-  - "/^testing-ci\\.*/"
+  - "/^testing.ci\\.*/"
 
 notifications:
   email:

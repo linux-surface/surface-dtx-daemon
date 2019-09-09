@@ -1,0 +1,99 @@
+#!/bin/bash
+set -e
+
+pkgname="surface-dtx-daemon"
+pkgarch="x86_64"
+
+gitver=$(git describe --tags 2> /dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' || true)
+civer=$(echo $TRAVIS_TAG | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
+
+pkgver=${civer:-${gitver:-0.0.0}}
+binpkg="$pkgname-$pkgver-$pkgarch.bin.tar.xz"
+
+branch="HEAD"
+basepath="$PWD/pkg/bin"
+srcdir="$basepath/src"
+pkgdir="$basepath/pkg"
+
+
+pushd() {
+    command pushd "$@" > /dev/null
+}
+
+popd() {
+    command popd "$@" > /dev/null
+}
+
+
+chkdir() {
+    if [ ! -d ".git" ]
+    then
+        echo "Error: Script must be run from the root directory"
+        exit 1
+    fi
+}
+
+prepare() {
+    archive="$basepath/src.tar"
+
+    git archive --format tar "$branch" > "$archive"
+
+    mkdir -p "$srcdir"
+    tar xf "$archive" --directory "$srcdir"
+}
+
+build() {
+    pushd "$srcdir"
+    env CARGO_TARGET_DIR="$PWD/target" CARGO_INCREMENTAL=0 cargo build --release --locked
+    popd
+}
+
+package() {
+    pushd "$srcdir"
+
+    # clean package directory
+    rm -rf "$pkgdir"
+    mkdir -p "$pkgdir"
+
+	# binary files
+	install -D -m755 "target/release/surface-dtx-daemon" "$pkgdir/bin/surface-dtx-daemon"
+	install -D -m755 "target/release/surface-dtx-userd"  "$pkgdir/bin/surface-dtx-userd"
+
+	# application files
+	install -D -m644 "etc/dtx/surface-dtx-daemon.conf" "$pkgdir/surface-dtx/surface-dtx-daemon.conf"
+	install -D -m644 "etc/dtx/surface-dtx-userd.conf"  "$pkgdir/surface-dtx/surface-dtx-userd.conf"
+	install -D -m755 "etc/dtx/attach.sh"               "$pkgdir/surface-dtx/attach.sh"
+	install -D -m755 "etc/dtx/detach.sh"               "$pkgdir/surface-dtx/detach.sh"
+
+	# systemd service files
+	install -D -m644 "etc/systemd/surface-dtx-daemon.service" "$pkgdir/systemd/surface-dtx-daemon.service"
+	install -D -m644 "etc/systemd/surface-dtx-userd.service"  "$pkgdir/systemd/surface-dtx-userd.service"
+
+	# dbus config file
+	install -D -m644 "etc/dbus/org.surface.dtx.conf" "$pkgdir/dbus/org.surface.dtx.conf"
+
+	# udev rules
+	install -D -m644 "etc/udev/40-surface_dtx.rules" "$pkgdir/udev/40-surface_dtx.rules"
+
+	# completion files
+	install -D -m644 "target/surface-dtx-daemon.bash" "$pkgdir/shell-completions/surface-dtx-daemon.bash"
+	install -D -m644 "target/surface-dtx-userd.bash"  "$pkgdir/shell-completions/surface-dtx-userd.bash"
+	install -D -m644 "target/_surface-dtx-daemon"     "$pkgdir/shell-completions/surface-dtx-daemon.zsh"
+	install -D -m644 "target/_surface-dtx-userd"      "$pkgdir/shell-completions/surface-dtx-userd.zsh"
+	install -D -m644 "target/surface-dtx-daemon.fish" "$pkgdir/shell-completions/surface-dtx-daemon.fish"
+	install -D -m644 "target/surface-dtx-userd.fish"  "$pkgdir/shell-completions/surface-dtx-userd.fish"
+
+    # license
+	install -D -m644 "LICENSE" "$pkgdir/LICENSE"
+
+    # zip package
+    tar -C "$pkgdir" -cJf "$basepath/$binpkg" .
+
+    popd
+}
+
+
+chkdir
+prepare
+build
+package
