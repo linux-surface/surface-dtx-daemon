@@ -25,7 +25,8 @@ The split into two daemons is required as notifications can only be sent on a pe
 
 ## Installation
 
-If you have an Arch Linux (Manjaro, ...) or Debian (Ubuntu, ...) based distribution, have a look at the [releases page][releases] for official packages.
+If you have a Debian (Ubuntu, ...) based distribution, have a look at the [releases page][releases] for official packages.
+Official Arch Linux packages can be found in the AUR (`surface-dtx-daemon`).
 After installation you may want to:
 - enable the systemd service for the system daemon using `systemctl enable surface-dtx-daemon.service`.
 - enable the systemd service for the per-user daemon using `systemctl enable --user surface-dtx-userd.service`.
@@ -48,10 +49,7 @@ Furthermore, a per-user configuration for the user daemon can also be created un
 
 ### Arch Linux
 
-Use the PKGBUILD under `pkg/arch`, i.e. to build a pakcage and directly install it run 
-```
-cd pkg/arch && makepkg -fsi
-```
+Simply install `surface-dtx-daemon` from AUR or have a look at its PKGBUILD.
 
 ### Debian/Ubuntu
 
