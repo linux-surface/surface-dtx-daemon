@@ -4,7 +4,7 @@ version = "0.1.4"
 authors = ["Maximilian Luz <luzmaximilian@gmail.com>"]
 description = "Surface Detachment System (DTX) Daemon"
 
-repository = "https://github.com/qzed/linux-surface-dtx-daemon/"
+repository = "https://github.com/linux-surface/surface-dtx-daemon/"
 license = "MIT"
 
 edition = "2018"

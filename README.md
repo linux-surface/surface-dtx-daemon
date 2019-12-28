@@ -2,8 +2,8 @@
 
 [![Build Status]][travis]
 
-[Build Status]: https://api.travis-ci.org/qzed/linux-surface-dtx-daemon.svg?branch=master
-[travis]: https://travis-ci.org/qzed/linux-surface-dtx-daemon
+[Build Status]: https://api.travis-ci.org/linux-surface/surface-dtx-daemon.svg?branch=master
+[travis]: https://travis-ci.org/linux-surface/surface-dtx-daemon
 
 Linux User-Space Detachment System (DTX) Daemon for the Surface ACPI Driver (and Surface Books).
 Currently only the Surface Book 2 is supported, due to lack of driver-support on the Surface Book 1.
@@ -62,4 +62,4 @@ You may need to install the `build-essential` and `devscripts` packages beforeha
 The final package will be in the `pkg/deb` directory.
 
 
-[releases]: https://github.com/qzed/linux-surface-dtx-daemon/releases
+[releases]: https://github.com/linux-surface/surface-dtx-daemon/releases

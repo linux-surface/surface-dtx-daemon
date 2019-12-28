@@ -1,6 +1,6 @@
 [Unit]
 Description=Surface Detachment System (DTX) Daemon
-Documentation=https://github.com/qzed/linux-surface-dtx-daemon
+Documentation=https://github.com/linux-surface/surface-dtx-daemon
 After=dev-surface_dtx.device
 Wants=dev-surface_dtx.device
 

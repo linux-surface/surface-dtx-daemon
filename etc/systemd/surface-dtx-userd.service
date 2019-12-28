@@ -1,6 +1,6 @@
 [Unit]
 Description=Surface Detachment System (DTX) User Daemon
-Documentation=https://github.com/qzed/linux-surface-dtx-daemon
+Documentation=https://github.com/linux-surface/surface-dtx-daemon
 After=basic.target
 ConditionUser=!root
 
