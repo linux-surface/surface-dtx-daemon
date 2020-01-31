@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - feature/ci
+
+  pull_request:
+
+  create:
+    tags:
+
+jobs:
+  lint:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install rust
+      run: |
+        rustup update stable && rustup default stable
+        rustup component add clippy
+
+    - name: Install dependencies
+      run: sudo apt-get install libdbus-1-dev
+
+    - name: Run clippy
+      run: cargo clippy --all --all-features -- -Dwarnings
