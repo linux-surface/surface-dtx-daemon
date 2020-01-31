@@ -53,3 +53,71 @@ jobs:
 
     - name: Test
       run: cargo test --all
+
+  build-bin:
+    if: github.event_name == 'create' && github.event.ref_type == 'tag'
+
+    name: Build binary package
+    runs-on: ubuntu-16.04
+    needs: [lint, test]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install rust
+      run: rustup update stable && rustup default stable
+
+    - name: Install dependencies
+      run: sudo apt-get install libdbus-1-dev
+
+    - name: Build package
+      run: ./pkg/bin/makebin
+
+    - name: Prepare release
+      run: mkdir release && mv pkg/bin/*.tar.xz release
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: binary-latest
+        path: release
+
+  build-deb:
+    if: github.event_name == 'create' && github.event.ref_type == 'tag'
+
+    name: Build deb package
+    runs-on: ubuntu-16.04
+    needs: [lint, test]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install rust
+      run: rustup update stable && rustup default stable
+
+    - name: Install dependencies
+      run: sudo apt-get install debhelper fakeroot dpkg-sig libdbus-1-dev
+
+    - name: Build package
+      run: ./pkg/deb/makedeb
+
+    - name: Sign package
+      env:
+        GPG_KEY_ID: 56C464BAAC421453
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+      run: |
+        # import GPG key
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+        export GPG_TTY=$(tty)
+        # sign package
+        cd pkg/deb && dpkg-sig -g "--batch --no-tty" --sign builder -k $GPG_KEY_ID ./*.deb
+    - name: Prepare release
+      run: mkdir release && mv pkg/deb/*.deb release
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: debian-latest
+        path: release
