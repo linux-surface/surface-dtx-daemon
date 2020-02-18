@@ -1,6 +1,6 @@
 Name:       surface-dtx-daemon
 Version:    0.1.4
-Release:    1%{?dist}
+Release:    2%{?dist}
 Summary:    Surface Detachment System (DTX) Daemon
 
 License:    MIT
