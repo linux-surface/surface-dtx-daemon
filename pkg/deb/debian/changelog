@@ -1,3 +1,9 @@
+surface-dtx-daemon (0.1.4-3) unstable; urgency=medium
+
+  * Bump pkgrel
+
+ -- Dorian Stoll <dorian.stoll@tmsp.io>  Tue, 31 Mar 2020 13:56:21 +0200
+
 surface-dtx-daemon (0.1.4-2) unstable; urgency=medium
 
   * Bump pkgrel
