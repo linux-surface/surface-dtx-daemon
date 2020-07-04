@@ -1,15 +1,11 @@
-use crate::error::{Error, ErrorKind, ErrorStr, Result, ResultExt};
+use crate::error::{ErrorKind, Result, ResultExt};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::time::Duration;
 
-use tokio::prelude::*;
-
-use dbus::Message;
 use dbus::arg::{RefArg, Variant};
-
-use dbus_tokio::AConnection;
-
+use dbus::nonblock::{Proxy, SyncConnection};
 
 #[derive(Debug)]
 pub struct Notification<'a> {
@@ -100,64 +96,55 @@ impl<'a> Notification<'a> {
         }
     }
 
-    #[allow(clippy::let_and_return)]
-    pub fn into_message(self) -> Message {
-        let m = Message::new_method_call(
+    pub async fn show(self, conn: &SyncConnection) -> Result<NotificationHandle> {
+        let proxy = Proxy::new(
+            "org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+            Duration::from_secs(5),
+            conn,
+        );
+
+        let (id,): (u32,) = proxy
+            .method_call(
                 "org.freedesktop.Notifications",
-                "/org/freedesktop/Notifications",
-                "org.freedesktop.Notifications",
-                "Notify").unwrap();
+                "Notify",
+                (
+                    self.app_name.into_owned(),
+                    self.replaces,
+                    self.icon.into_owned(),
+                    self.summary.into_owned(),
+                    self.body.into_owned(),
+                    self.actions,
+                    self.hints,
+                    self.expires,
+                ),
+            )
+            .await
+            .context(ErrorKind::DBus)?;
 
-        let m = m.append1(self.app_name.into_owned());
-        let m = m.append1(self.replaces);
-        let m = m.append1(self.icon.into_owned());
-        let m = m.append1(self.summary.into_owned());
-        let m = m.append1(self.body.into_owned());
-        let m = m.append1(self.actions);
-        let m = m.append1(self.hints);
-        let m = m.append1(self.expires);
-
-        m
-    }
-
-    pub fn show(self, conn: &AConnection) -> Result<impl Future<Item=NotificationHandle, Error=Error>> {
-        let task = conn.method_call(self.into_message())
-            .map_err(ErrorStr::from)
-            .context(ErrorKind::DBus)?
-            .map_err(|e| Error::with(e, ErrorKind::DBus));
-
-        let task = task.and_then(|m| {
-            let id: u32 = m.read1().context(ErrorKind::DBus)?;
-            Ok(NotificationHandle { id })
-        });
-
-        Ok(task)
-    }
-}
-
-impl<'a> Into<Message> for Notification<'a> {
-    fn into(self) -> Message {
-        self.into_message()
+        Ok(NotificationHandle { id })
     }
 }
 
 
 impl NotificationHandle {
-    pub fn close(self, conn: &AConnection) -> Result<impl Future<Item=(), Error=Error>> {
-        let m = Message::new_method_call(
+    pub async fn close(self, conn: &SyncConnection) -> Result<()> {
+        let proxy = Proxy::new(
+            "org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+            Duration::from_secs(5),
+            conn,
+        );
+
+        let (): () = proxy
+            .method_call(
                 "org.freedesktop.Notifications",
-                "/org/freedesktop/Notifications",
-                "org.freedesktop.Notifications",
-                "CloseNotification").unwrap();
+                "CloseNotification",
+                (self.id,),
+            )
+            .await
+            .context(ErrorKind::DBus)?;
 
-        let m = m.append1(self.id);
-
-        let task = conn.method_call(m)
-            .map_err(ErrorStr::from)
-            .context(ErrorKind::DBus)?
-            .map_err(|e| Error::with(e, ErrorKind::DBus))
-            .map(|_| ());
-
-        Ok(task)
+        Ok(())
     }
 }

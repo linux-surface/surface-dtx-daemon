@@ -1,8 +1,5 @@
 use std::path::{Path, PathBuf};
-
-use serde;
 use serde::{Serialize, Deserialize};
-
 use crate::error::{Result, ResultExt, ErrorKind};
 
 

@@ -1,5 +1,5 @@
 mod error;
-use error::{Error, ErrorKind, ErrorStr, Result, ResultExt, CliResult};
+use error::{CliResult, Error, ErrorKind, Result, ResultExt};
 
 mod cli;
 
@@ -9,24 +9,24 @@ use config::Config;
 mod notify;
 use notify::{Notification, NotificationHandle, Timeout};
 
-use std::rc::Rc;
 use std::cell::Cell;
+use std::sync::Arc;
 
-use slog::{Logger, debug, crit, o};
+use slog::{crit, debug, o, Logger};
 
-use tokio::prelude::*;
-use tokio::reactor::Handle;
-use tokio::runtime::current_thread::Runtime;
-
+use dbus::channel::BusType;
+use dbus::message::MatchRule;
+use dbus::nonblock::SyncConnection;
 use dbus::Message;
-use dbus_tokio::AConnection;
+use dbus_tokio::connection;
+
+use futures::prelude::*;
 
 
 fn logger(config: &Config) -> Logger {
-    use slog::{Drain};
+    use slog::Drain;
 
-    let decorator = slog_term::TermDecorator::new()
-        .build();
+    let decorator = slog_term::TermDecorator::new().build();
 
     let drain = slog_term::FullFormat::new(decorator)
         .use_original_order()
@@ -34,13 +34,13 @@ fn logger(config: &Config) -> Logger {
         .filter_level(config.log.level.into())
         .fuse();
 
-    let drain = std::sync::Mutex::new(drain)
-        .fuse();
+    let drain = std::sync::Mutex::new(drain).fuse();
 
     Logger::root(drain, o!())
 }
 
-fn main() -> CliResult {
+#[tokio::main(core_threads = 1, max_threads = 1)]
+async fn main() -> CliResult {
     let matches = cli::app().get_matches();
 
     let config = match matches.value_of("config") {
@@ -50,57 +50,77 @@ fn main() -> CliResult {
 
     let logger = logger(&config);
 
-    let sys_c: Rc<_> = dbus::Connection::get_private(dbus::BusType::System)
-        .context(ErrorKind::DBus)?
-        .into();
-
-    let ses_c: Rc<_> = dbus::Connection::get_private(dbus::BusType::Session)
-        .context(ErrorKind::DBus)?
-        .into();
-
-    sys_c.add_match("type=signal,sender=org.surface.dtx,member=DetachStateChanged")
+    let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
         .context(ErrorKind::DBus)?;
 
-    let mut rt = Runtime::new().context(ErrorKind::Runtime)?;
-    let sys_ac = AConnection::new(sys_c, Handle::default(), &mut rt).unwrap();
-    let ses_ac = AConnection::new(ses_c, Handle::default(), &mut rt).unwrap();
+    let (ses_rsrc, ses_conn) = connection::new::<SyncConnection>(BusType::Session)
+        .context(ErrorKind::DBus)?;
 
-    let task = sys_ac.messages()
-        .map_err(ErrorStr::from)
-        .context(ErrorKind::DBus)?
-        .map_err(|_| Error::from(ErrorKind::DBus));
+    let log = logger.clone();
+    tokio::spawn(async move {
+        let err = sys_rsrc.await;
 
-    let mut handler = MessageHandler::new(logger, ses_ac);
-    let task = task.for_each(move |m| {
-        handler.handle(m)
+        crit!(log, "Error: DBus error: {}", err);
+        std::process::exit(1);
     });
 
-    rt.block_on(task)?;
+    let log = logger.clone();
+    tokio::spawn(async move {
+        let err = ses_rsrc.await;
+
+        crit!(log, "Error: DBus error: {}", err);
+        std::process::exit(1);
+    });
+
+    let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
+    let (_msgs, stream) = sys_conn
+        .add_match(mr)
+        .await
+        .context(ErrorKind::DBus)?
+        .msg_stream();
+
+    let log = logger.clone();
+    let handler = MessageHandler::new(logger, ses_conn);
+    let stream = stream.for_each(move |m| {
+        let log = log.clone();
+        let handler = handler.clone();
+        async move {
+            if let Err(err) = handler.handle(m).await {
+                panic_with_critical_error(&log, &err);
+            }
+        }
+    });
+
+    stream.await;
     Ok(())
 }
 
-
+#[derive(Clone)]
 struct MessageHandler {
-    log: Logger,
-    connection: AConnection,
-    detach_notif: Rc<Cell<Option<NotificationHandle>>>,
+    log:          Logger,
+    connection:   Arc<SyncConnection>,
+    detach_notif: Arc<Cell<Option<NotificationHandle>>>,
 }
 
 impl MessageHandler {
-    fn new(log: Logger, connection: AConnection) -> Self {
-        MessageHandler { log, connection, detach_notif: Rc::new(Cell::new(None)) }
+    fn new(log: Logger, connection: Arc<SyncConnection>) -> Self {
+        MessageHandler {
+            log,
+            connection,
+            detach_notif: Arc::new(Cell::new(None)),
+        }
     }
 
-    fn handle(&mut self, mut message: Message) -> Result<()> {
+    async fn handle(&self, mut message: Message) -> Result<()> {
         let m = message.as_result().context(ErrorKind::DBus)?;
         debug!(self.log, "message received"; "message" => ?m);
 
         if m.interface() != Some("org.surface.dtx".into()) {
-            return Ok(())
+            return Ok(());
         }
 
         if m.member() != Some("DetachStateChanged".into()) {
-            return Ok(())
+            return Ok(());
         }
 
         let state: &str = m.read1().context(ErrorKind::DBus)?;
@@ -108,13 +128,13 @@ impl MessageHandler {
 
         match state {
             "detach-ready" => {
-                self.notify_detach_ready()
+                self.notify_detach_ready().await
             },
             "detach-completed" | "detach-aborted" => {
-                self.notify_detach_completed()
+                self.notify_detach_completed().await
             },
             "attach-completed" => {
-                self.notify_attach_completed()
+                self.notify_attach_completed().await
             },
             _ => {
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid detach-state"))
@@ -124,7 +144,7 @@ impl MessageHandler {
         }
     }
 
-    fn notify_detach_ready(&mut self) -> Result<()> {
+    async fn notify_detach_ready(&self) -> Result<()> {
         let mut notif = Notification::new("Surface DTX");
         notif.set_summary("Surface DTX");
         notif.set_body("Clipboard can be detached.");
@@ -134,44 +154,25 @@ impl MessageHandler {
         notif.add_hint_b("resident", true);
         notif.set_expires(Timeout::Never);
 
-        let task = notif.show(&self.connection)?;
+        let handle = notif.show(&self.connection).await?;
+        debug!(self.log, "added notification {}", handle.id);
 
-        let log = self.log.clone();
-        let notif_handle = self.detach_notif.clone();
-        let task = task.map(move |h| {
-            debug!(log, "added notification {}", h.id);
-            notif_handle.set(Some(h))
-        });
-
-        let log = self.log.clone();
-        let task = task.map_err(move |e| {
-            panic_with_critical_error(&log, &e)
-        });
-
-        tokio::runtime::current_thread::spawn(task);
-
+        self.detach_notif.set(Some(handle));
         Ok(())
     }
 
-    fn notify_detach_completed(&mut self) -> Result<()> {
+    async fn notify_detach_completed(&self) -> Result<()> {
         let notif = self.detach_notif.replace(None);
 
         if let Some(notif) = notif {
             debug!(self.log, "closing notification {}", notif.id);
-            let task = notif.close(&self.connection)?;
-
-            let log = self.log.clone();
-            let task = task.map_err(move |e| {
-                panic_with_critical_error(&log, &e)
-            });
-
-            tokio::runtime::current_thread::spawn(task);
+            notif.close(&self.connection).await?;
         }
 
         Ok(())
     }
 
-    fn notify_attach_completed(&mut self) -> Result<()> {
+    async fn notify_attach_completed(&self) -> Result<()> {
         let mut notif = Notification::new("Surface DTX");
         notif.set_summary("Surface DTX");
         notif.set_body("Clipboard attached.");
@@ -179,15 +180,7 @@ impl MessageHandler {
         notif.add_hint_s("category", "device");
         notif.add_hint_b("transient", true);
 
-        let task = notif.show(&self.connection)?;
-
-        let log = self.log.clone();
-        let task = task.map(|_| ()).map_err(move |e| {
-            panic_with_critical_error(&log, &e)
-        });
-
-        tokio::runtime::current_thread::spawn(task);
-
+        notif.show(&self.connection).await?;
         Ok(())
     }
 }

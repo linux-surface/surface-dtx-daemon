@@ -16,17 +16,10 @@ pub enum ErrorKind {
 
     #[fail(display = "DBus failure")]
     DBus,
-
-    #[fail(display = "Runtime failure")]
-    Runtime,
 }
 
 
 impl Error {
-    pub fn with<F: Fail>(cause: F, context: ErrorKind) -> Error {
-        Error::from(cause.context(context))
-    }
-
     pub fn kind(&self) -> ErrorKind {
         *self.inner.get_context()
     }
