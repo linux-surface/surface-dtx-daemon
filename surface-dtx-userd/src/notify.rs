@@ -7,6 +7,7 @@ use std::time::Duration;
 use dbus::arg::{RefArg, Variant};
 use dbus::nonblock::{Proxy, SyncConnection};
 
+
 #[derive(Debug)]
 pub struct Notification<'a> {
     app_name: Cow<'a, str>,

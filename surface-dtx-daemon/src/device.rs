@@ -1,11 +1,11 @@
 use std::convert::TryFrom;
 use std::path::Path;
 use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::os::unix::io::AsRawFd;
+use std::task::{Context, Poll};
 
 use tokio::fs::{File, OpenOptions};
-use tokio::io::{BufReader, AsyncBufRead};
+use tokio::io::{AsyncBufRead, BufReader};
 use tokio::stream::Stream;
 
 use nix::{ioctl_none, ioctl_read};

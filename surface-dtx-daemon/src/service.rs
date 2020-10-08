@@ -1,15 +1,15 @@
 use crate::error::Result;
 use crate::device::{Device, OpMode};
 
-use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-use slog::{Logger, debug};
+use slog::{debug, Logger};
 
 use dbus::Message;
-use dbus::nonblock::SyncConnection;
 use dbus::channel::Sender;
-use dbus_crossroads::{MethodErr, Crossroads, IfaceBuilder};
+use dbus::nonblock::SyncConnection;
+use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

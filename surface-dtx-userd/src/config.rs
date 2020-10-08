@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
-use serde::{Serialize, Deserialize};
-use crate::error::{Result, ResultExt, ErrorKind};
+use serde::{Deserialize, Serialize};
+use crate::error::{ErrorKind, Result, ResultExt};
 
 
 const SYSTEM_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-userd.conf";

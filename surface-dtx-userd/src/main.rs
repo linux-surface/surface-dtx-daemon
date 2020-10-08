@@ -14,10 +14,10 @@ use std::sync::Arc;
 
 use slog::{crit, debug, o, Logger};
 
+use dbus::Message;
 use dbus::channel::BusType;
 use dbus::message::MatchRule;
 use dbus::nonblock::SyncConnection;
-use dbus::Message;
 use dbus_tokio::connection;
 
 use futures::prelude::*;

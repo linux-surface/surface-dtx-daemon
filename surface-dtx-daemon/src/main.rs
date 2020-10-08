@@ -7,32 +7,32 @@ mod config;
 use config::Config;
 
 mod device;
-use device::{Device, Event, RawEvent, OpMode, LatchState, ConnectionState};
+use device::{ConnectionState, Device, Event, LatchState, OpMode, RawEvent};
 
 mod service;
-use service::{Service, DetachState};
+use service::{DetachState, Service};
 
 use std::convert::TryFrom;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
-use std::future::Future;
 
 // use tokio::runtime::current_thread::Runtime;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::signal::unix::{signal, SignalKind};
 use tokio::process::Command;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
-use dbus::message::MatchRule;
 use dbus::channel::{BusType, MatchingReceiver};
+use dbus::message::MatchRule;
 use dbus::nonblock::SyncConnection;
 use dbus_tokio::connection;
 use dbus_crossroads::Crossroads;
 
 use futures::prelude::*;
 
-use slog::{Logger, trace, debug, info, warn, error, crit, o};
+use slog::{crit, debug, error, info, o, trace, warn, Logger};
 
 
 fn logger(config: &Config) -> Logger {

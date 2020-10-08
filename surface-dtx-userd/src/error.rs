@@ -1,5 +1,4 @@
-use failure::{Context, Fail, Backtrace};
-
+use failure::{Backtrace, Context, Fail};
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub use failure::ResultExt;
