@@ -96,11 +96,10 @@ async fn main() -> CliResult {
     let process_task = setup_process_task(queue_rx);
     let process_task = async move {
         dbus_conn.request_name("org.surface.dtx", false, true, false).await
-            .context(ErrorKind::DBusService)
-            .unwrap();
+            .context(ErrorKind::DBusService)?;
 
         // make sure the device-mode in the service is up to date
-        serv.set_device_mode(device.commands().get_opmode().unwrap());
+        serv.set_device_mode(device.commands().get_opmode()?);
 
         process_task.await
     };
@@ -108,9 +107,8 @@ async fn main() -> CliResult {
     // set up shutdown so that process_task is driven to completion
     let log = logger.clone();
     let process_task = process_task.map(move |result| {
-        match result {
-            Ok(_) => {},
-            Err(e) => { panic_with_critical_error(&log, &e); },
+        if let Err(e) = result {
+            panic_with_critical_error(&log, &e);
         }
     });
 
@@ -124,16 +122,23 @@ async fn main() -> CliResult {
         res = shutdown_signal => res.map(|r| Some(r)),
         res = event_task => res.map(|_| None),
         _ = process_task => Ok(None),
-        err = dbus_rsrc => panic!(err),
+        err = dbus_rsrc => Err(Error::with_compat(err, ErrorKind::DBusService)),
+    };
+
+    // wait for shutdown driver to complete
+    let result = match result {
+        Ok(Some(shutdown_driver)) => shutdown_driver.await.map_err(|e| {
+            Error::with(e, ErrorKind::Runtime)
+        }),
+        x => x.map(|_| ()),
     };
 
     match result {
         Err(e) => { panic_with_critical_error(&logger, &e) },
-        Ok(Some(shutdown_driver)) => { shutdown_driver.await.unwrap(); },
-        Ok(None) => {},
+        _ => {},
     }
 
-    std::process::exit(0);
+    std::process::exit(0)
 }
 
 fn setup_shutdown_signal<F>(log: Logger, shutdown_task: F)
@@ -142,8 +147,8 @@ where
     F: Future<Output=()> + 'static + Send,
 {
     async move {
-        let mut sigint = signal(SignalKind::interrupt()).unwrap();
-        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        let mut sigint = signal(SignalKind::interrupt()).context(ErrorKind::Setup)?;
+        let mut sigterm = signal(SignalKind::terminate()).context(ErrorKind::Setup)?;
 
         // wait for first signal
         let sig = tokio::select! {

@@ -1,3 +1,4 @@
+use std::error::Error as StdErr;
 use failure::{Backtrace, Context, Fail};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -13,6 +14,9 @@ pub enum ErrorKind {
     #[fail(display = "Invalid configuration")]
     Config,
 
+    #[fail(display = "DBus service failure")]
+    DBusService,
+
     #[fail(display = "Device access failure")]
     DeviceAccess,
 
@@ -22,14 +26,21 @@ pub enum ErrorKind {
     #[fail(display = "Failed to run external process")]
     Process,
 
-    #[fail(display = "DBus service failure")]
-    DBusService,
+    #[fail(display = "Runtime error")]
+    Runtime,
+
+    #[fail(display = "Setup error")]
+    Setup,
 }
 
 
 impl Error {
     pub fn with<F: Fail>(cause: F, context: ErrorKind) -> Error {
         Error::from(cause.context(context))
+    }
+
+    pub fn with_compat(err: Box<dyn StdErr + Sync + Send + 'static>, context: ErrorKind) -> Error {
+        failure::Error::from_boxed_compat(err).context(context).into()
     }
 
     pub fn kind(&self) -> ErrorKind {
