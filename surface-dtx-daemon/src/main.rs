@@ -136,7 +136,8 @@ async fn main() -> CliResult {
     std::process::exit(0);
 }
 
-fn setup_shutdown_signal<F>(log: Logger, shutdown_task: F) -> impl Future<Output=Result<JoinHandle<()>>>
+fn setup_shutdown_signal<F>(log: Logger, shutdown_task: F)
+        -> impl Future<Output=Result<JoinHandle<()>>>
 where
     F: Future<Output=()> + 'static + Send,
 {
@@ -154,7 +155,6 @@ where
 
         // schedule driver for completion
         let driver = async move {
-            // whichever happens first: graceful termination or next signal (hard termination)
             let tval = tokio::select! {
                 _ = sigint.next()  =>  2,   // = value of SIGINT
                 _ = sigterm.next() => 15,   // = value of SIGTERM
@@ -173,7 +173,7 @@ where
 
 fn setup_event_task(log: Logger, config: Config, service: Arc<Service>,
                     device: Arc<Device>, task_queue_tx: Sender<BoxedTask>)
-    -> impl Future<Output=Result<()>>
+        -> impl Future<Output=Result<()>>
 {
     async move {
         let mut events = device.events().await?.map_err(Error::from);
@@ -187,7 +187,8 @@ fn setup_event_task(log: Logger, config: Config, service: Arc<Service>,
     }
 }
 
-fn setup_process_task(task_queue_rx: Receiver<BoxedTask>) -> impl Future<Output=Result<()>> + Send
+fn setup_process_task(task_queue_rx: Receiver<BoxedTask>)
+        -> impl Future<Output=Result<()>> + Send
 {
     async move {
         let mut queue = task_queue_rx;
