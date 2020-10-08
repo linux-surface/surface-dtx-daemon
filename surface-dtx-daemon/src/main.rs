@@ -296,7 +296,7 @@ impl EventHandler {
                 self.schedule_task_attach()
             },
             _ => {
-                error!(self.log, "invalid state"; "state" => ?(*self.state.lock().unwrap(), state));
+                error!(self.log, "invalid state"; "state" => ?(state, connection));
                 Ok(())
             },
         }
