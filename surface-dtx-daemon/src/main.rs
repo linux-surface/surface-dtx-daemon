@@ -81,7 +81,7 @@ async fn main() -> CliResult {
     }));
 
     // event handler
-    let event_task = setup_event_task(logger.clone(), config, serv.clone(), device.clone(), queue_tx);
+    let event_task = event_task(logger.clone(), config, serv.clone(), device.clone(), queue_tx);
 
     // This implementation is structured around two main tasks: process_task
     // and main_task. main_task drives all processing, while process_task is
@@ -93,7 +93,6 @@ async fn main() -> CliResult {
     // the first shutdown signal will be properly handled.
 
     // process queue handler and init stuff
-    let process_task = setup_process_task(queue_rx);
     let process_task = async move {
         dbus_conn.request_name("org.surface.dtx", false, true, false).await
             .context(ErrorKind::DBusService)?;
@@ -101,7 +100,7 @@ async fn main() -> CliResult {
         // make sure the device-mode in the service is up to date
         serv.set_device_mode(device.commands().get_opmode()?);
 
-        process_task.await
+        process_task(queue_rx).await
     };
 
     // set up shutdown so that process_task is driven to completion
@@ -115,11 +114,11 @@ async fn main() -> CliResult {
     let process_task = process_task.shared();
 
     // shutdown handler and main task
-    let shutdown_signal = setup_shutdown_signal(logger.clone(), process_task.clone());
+    let shutdown_signal = shutdown_signal(logger.clone(), process_task.clone());
 
     debug!(logger, "running...");
     let result = tokio::select! {
-        res = shutdown_signal => res.map(|r| Some(r)),
+        res = shutdown_signal => res.map(Some),
         res = event_task => res.map(|_| None),
         _ = process_task => Ok(None),
         err = dbus_rsrc => Err(Error::with_compat(err, ErrorKind::DBusService)),
@@ -133,77 +132,67 @@ async fn main() -> CliResult {
         x => x.map(|_| ()),
     };
 
-    match result {
-        Err(e) => { panic_with_critical_error(&logger, &e) },
-        _ => {},
+    if let Err(e) = result {
+        panic_with_critical_error(&logger, &e);
     }
 
     std::process::exit(0)
 }
 
-fn setup_shutdown_signal<F>(log: Logger, shutdown_task: F)
-        -> impl Future<Output=Result<JoinHandle<()>>>
+async fn shutdown_signal<F>(log: Logger, shutdown_task: F) -> Result<JoinHandle<()>>
 where
     F: Future<Output=()> + 'static + Send,
 {
-    async move {
-        let mut sigint = signal(SignalKind::interrupt()).context(ErrorKind::Setup)?;
-        let mut sigterm = signal(SignalKind::terminate()).context(ErrorKind::Setup)?;
+    let mut sigint = signal(SignalKind::interrupt()).context(ErrorKind::Setup)?;
+    let mut sigterm = signal(SignalKind::terminate()).context(ErrorKind::Setup)?;
 
-        // wait for first signal
-        let sig = tokio::select! {
-            _ = sigint.next()  => "SIGINT",
-            _ = sigterm.next() => "SIGTERM",
+    // wait for first signal
+    let sig = tokio::select! {
+        _ = sigint.next()  => "SIGINT",
+        _ = sigterm.next() => "SIGTERM",
+    };
+
+    info!(log, "received {}, shutting down...", sig);
+
+    // schedule driver for completion
+    let driver = async move {
+        let tval = tokio::select! {
+            _ = sigint.next()  =>  2,   // = value of SIGINT
+            _ = sigterm.next() => 15,   // = value of SIGTERM
+            _ = shutdown_task  =>  0,
         };
 
-        info!(log, "received {}, shutting down...", sig);
+        if tval != 0 {
+            info!(log, "terminating...");
+            std::process::exit(128 + tval)
+        }
+    };
 
-        // schedule driver for completion
-        let driver = async move {
-            let tval = tokio::select! {
-                _ = sigint.next()  =>  2,   // = value of SIGINT
-                _ = sigterm.next() => 15,   // = value of SIGTERM
-                _ = shutdown_task  =>  0,
-            };
-
-            if tval != 0 {
-                info!(log, "terminating...");
-                std::process::exit(128 + tval)
-            }
-        };
-
-        Ok(tokio::spawn(driver))
-    }
+    Ok(tokio::spawn(driver))
 }
 
-fn setup_event_task(log: Logger, config: Config, service: Arc<Service>,
-                    device: Arc<Device>, task_queue_tx: Sender<BoxedTask>)
-        -> impl Future<Output=Result<()>>
+async fn event_task(log: Logger, config: Config, service: Arc<Service>,
+        device: Arc<Device>, task_queue_tx: Sender<BoxedTask>) -> Result<()>
 {
-    async move {
-        let mut events = device.events().await?.map_err(Error::from);
-        let mut handler = EventHandler::new(log, config, service, device, task_queue_tx);
+    let mut events = device.events().await?.map_err(Error::from);
+    let mut handler = EventHandler::new(log, config, service, device, task_queue_tx);
 
-        while let Some(evt) = events.next().await {
-            handler.handle(evt?)?;
-        }
-
-        Ok(())
+    while let Some(evt) = events.next().await {
+        handler.handle(evt?)?;
     }
+
+    Ok(())
 }
 
-fn setup_process_task(task_queue_rx: Receiver<BoxedTask>)
-        -> impl Future<Output=Result<()>> + Send
+async fn process_task(task_queue_rx: Receiver<BoxedTask>) -> Result<()>
 {
-    async move {
-        let mut queue = task_queue_rx;
+    let mut queue = task_queue_rx;
 
-        while let Some(task) = queue.recv().await {
-            task.await?;
-        }
-
-        Ok(())
+    while let Some(task) = queue.recv().await {
+        task.await?;
     }
+
+    Ok(())
 }
 
 
