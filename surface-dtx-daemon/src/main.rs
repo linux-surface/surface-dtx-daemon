@@ -13,19 +13,26 @@ mod service;
 use service::{Service, DetachState};
 
 use std::convert::TryFrom;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::process::Command;
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+use std::future::Future;
 
-use tokio::prelude::*;
-use tokio::runtime::current_thread::Runtime;
+// use tokio::runtime::current_thread::Runtime;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
-use tokio_process::CommandExt;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::process::Command;
+use tokio::task::JoinHandle;
+
+use dbus::message::MatchRule;
+use dbus::channel::{BusType, MatchingReceiver};
+use dbus::nonblock::SyncConnection;
+use dbus_tokio::connection;
+use dbus_crossroads::Crossroads;
+
+use futures::prelude::*;
 
 use slog::{Logger, trace, debug, info, warn, error, crit, o};
-
 
 
 fn logger(config: &Config) -> Logger {
@@ -46,7 +53,8 @@ fn logger(config: &Config) -> Logger {
     Logger::root(drain, o!())
 }
 
-fn main() -> CliResult {
+#[tokio::main(core_threads = 1)]
+async fn main() -> CliResult {
     let matches = cli::app().get_matches();
 
     let config = match matches.value_of("config") {
@@ -55,146 +63,162 @@ fn main() -> CliResult {
     };
 
     let logger = logger(&config);
-
-    let mut runtime = Runtime::new().context(ErrorKind::Runtime)?;
-    let device: Rc<_> = Device::open()?.into();
+    let device: Arc<_> = Device::open().await?.into();
 
     // set-up task-queue for external processes
     let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(32);
 
     // dbus service
-    let connection: Rc<_> = dbus::Connection::get_private(dbus::BusType::System)
-        .context(ErrorKind::DBusService)?
-        .into();
+    let (dbus_rsrc, dbus_conn) = connection::new::<SyncConnection>(BusType::System)
+        .context(ErrorKind::DBusService)?;
 
-    let serv: Rc<_> = service::build(logger.clone(), connection, device.clone())?.into();
-    let serv_task = serv.task(&mut runtime).context(ErrorKind::DBusService)?;
+    let mut dbus_cr = Crossroads::new();
+    let serv = service::build(logger.clone(), &mut dbus_cr, dbus_conn.clone(), device.clone())?;
+
+    dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
+        dbus_cr.handle_message(msg, conn).unwrap();
+        true
+    }));
 
     // event handler
-    let event_task = setup_event_task(logger.clone(), config, serv.clone(), device.clone(), queue_tx)?;
+    let event_task = setup_event_task(logger.clone(), config, serv.clone(), device.clone(), queue_tx);
 
-    // process queue handler
-    let process_task = setup_process_task(queue_rx).shared();
-    let shutdown_task = process_task.clone().map(|_| ());
+    // This implementation is structured around two main tasks: process_task
+    // and main_task. main_task drives all processing, while process_task is
+    // the subtask managing the task queue. When the first shutdown signal has
+    // been received, main_task stops all processing and waits for the shutdown
+    // driver to complete. The shutdown driver will then continue to run
+    // process_task, either to completion or until the second signal has been
+    // received. This way, under normal operation, all events received befor
+    // the first shutdown signal will be properly handled.
 
-    // shutdown handler and main task
-    let signal = setup_shutdown_signal(logger.clone(), shutdown_task);
-    let main_task = signal
-        .select(event_task).map(|_| ()).map_err(|(e, _)| panic!(e))
-        .select(serv_task).map(|_| ()).map_err(|(e, _)| panic!(e));
+    // process queue handler and init stuff
+    let process_task = setup_process_task(queue_rx);
+    let process_task = async move {
+        dbus_conn.request_name("org.surface.dtx", false, true, false).await
+            .context(ErrorKind::DBusService)
+            .unwrap();
 
-    // only critical errors will reach this point
-    let log = logger.clone();
-    let main_task = main_task.map_err(move |e| {
-        panic_with_critical_error(&log, &e);
-    });
+        // make sure the device-mode in the service is up to date
+        serv.set_device_mode(device.commands().get_opmode().unwrap());
 
-    let log = logger.clone();
-    let process_task = process_task.map(|_| ()).map_err(move |e| {
-        panic_with_critical_error(&log, &e);
-    });
-
-    // make sure the device-mode in the service is up to date
-    let init_task = future::lazy(move || {
-        serv.set_device_mode(device.commands().get_opmode()?);
-        Ok(())
-    });
-
-    let log = logger.clone();
-    let init_task = init_task.map_err(move |e| {
-        panic_with_critical_error(&log, &e);
-    });
-
-    debug!(logger, "running...");
-    runtime.spawn(main_task);
-    runtime.spawn(process_task);
-    runtime.spawn(init_task);
-    runtime.run().unwrap();
-
-    Ok(())
-}
-
-
-fn setup_shutdown_signal<F>(log: Logger, shutdown_task: F) -> impl Future<Item=(), Error=Error>
-where
-    F: Future + 'static,
-    <F as Future>::Error: std::fmt::Display,
-{
-    let signal = {
-        let sigint = Signal::new(SIGINT).flatten_stream();
-        let sigterm = Signal::new(SIGTERM).flatten_stream();
-
-        sigint.select(sigterm).into_future()
-            .map_err(|(e, _)| Error::with(e, ErrorKind::Runtime))
+        process_task.await
     };
 
-    signal.map(move |(sig, next)| {
-        info!(log, "shutting down...");
-
-        // actual shutdown code provided via shutdown_task: wait for completion
-        let l = log.clone();
-        let task = shutdown_task.map(|_| ()).map_err(move |e| {
-            error!(l, "error while terminating: {}", e);
-        });
-
-        // on second signal: terminate, no questions asked
-        let l = log.clone();
-        let term = next.into_future().then(move |_| -> std::result::Result<(), ()> {
-            info!(l, "terminating...");
-            std::process::exit(128 + sig.unwrap_or(SIGINT))
-        });
-
-        let task = task.select(term)
-            .map(|_| ()).map_err(|_| ());
-
-        tokio::runtime::current_thread::spawn(task)
-    })
-}
-
-fn setup_event_task(log: Logger, config: Config, service: Rc<Service>,
-                    device: Rc<Device>, task_queue_tx: Sender<BoxedTask>)
-    -> Result<impl Future<Item=(), Error=Error>>
-{
-    let events = device.events()?.map_err(Error::from);
-
-    let mut handler = EventHandler::new(log, config, service, device, task_queue_tx);
-    let task = events.for_each(move |evt| {
-        handler.handle(evt)
+    // set up shutdown so that process_task is driven to completion
+    let log = logger.clone();
+    let process_task = process_task.map(move |result| {
+        match result {
+            Ok(_) => {},
+            Err(e) => { panic_with_critical_error(&log, &e); },
+        }
     });
 
-    Ok(task)
+    let process_task = process_task.shared();
+
+    // shutdown handler and main task
+    let shutdown_signal = setup_shutdown_signal(logger.clone(), process_task.clone());
+
+    debug!(logger, "running...");
+    let result = tokio::select! {
+        res = shutdown_signal => res.map(|r| Some(r)),
+        res = event_task => res.map(|_| None),
+        _ = process_task => Ok(None),
+        err = dbus_rsrc => panic!(err),
+    };
+
+    match result {
+        Err(e) => { panic_with_critical_error(&logger, &e) },
+        Ok(Some(shutdown_driver)) => { shutdown_driver.await.unwrap(); },
+        Ok(None) => {},
+    }
+
+    std::process::exit(0);
 }
 
-fn setup_process_task(task_queue_rx: Receiver<BoxedTask>)
-    -> impl Future<Item=(), Error=Error>
+fn setup_shutdown_signal<F>(log: Logger, shutdown_task: F) -> impl Future<Output=Result<JoinHandle<()>>>
+where
+    F: Future<Output=()> + 'static + Send,
 {
-    // an error here (sender closed while trying to receive) is a failure in program logic
-    let task = task_queue_rx.map_err(|e| panic!(e));
+    async move {
+        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
 
-    task.for_each(|task| {
-        task
-    })
+        // wait for first signal
+        let sig = tokio::select! {
+            _ = sigint.next()  => "SIGINT",
+            _ = sigterm.next() => "SIGTERM",
+        };
+
+        info!(log, "received {}, shutting down...", sig);
+
+        // schedule driver for completion
+        let driver = async move {
+            // whichever happens first: graceful termination or next signal (hard termination)
+            let tval = tokio::select! {
+                _ = sigint.next()  =>  2,   // = value of SIGINT
+                _ = sigterm.next() => 15,   // = value of SIGTERM
+                _ = shutdown_task  =>  0,
+            };
+
+            if tval != 0 {
+                info!(log, "terminating...");
+                std::process::exit(128 + tval)
+            }
+        };
+
+        Ok(tokio::spawn(driver))
+    }
+}
+
+fn setup_event_task(log: Logger, config: Config, service: Arc<Service>,
+                    device: Arc<Device>, task_queue_tx: Sender<BoxedTask>)
+    -> impl Future<Output=Result<()>>
+{
+    async move {
+        let mut events = device.events().await?.map_err(Error::from);
+        let mut handler = EventHandler::new(log, config, service, device, task_queue_tx);
+
+        while let Some(evt) = events.next().await {
+            handler.handle(evt?)?;
+        }
+
+        Ok(())
+    }
+}
+
+fn setup_process_task(task_queue_rx: Receiver<BoxedTask>) -> impl Future<Output=Result<()>> + Send
+{
+    async move {
+        let mut queue = task_queue_rx;
+
+        while let Some(task) = queue.recv().await {
+            task.await?;
+        }
+
+        Ok(())
+    }
 }
 
 
-type BoxedTask = Box<dyn Future<Item=(), Error=Error>>;
+type BoxedTask = std::pin::Pin<Box<dyn Future<Output=Result<()>> + Send>>;
 
 struct EventHandler {
     log: Logger,
     config: Config,
-    service: Rc<Service>,
-    device: Rc<Device>,
-    state: Rc<RefCell<State>>,
+    service: Arc<Service>,
+    device: Arc<Device>,
+    state: Arc<Mutex<State>>,
     task_queue_tx: Sender<BoxedTask>,
     ignore_request: u32,
 }
 
 impl EventHandler {
-    fn new(log: Logger, config: Config, service: Rc<Service>, device: Rc<Device>,
+    fn new(log: Logger, config: Config, service: Arc<Service>, device: Arc<Device>,
            task_queue_tx: Sender<BoxedTask>)
         -> Self
     {
-        let state = Rc::new(RefCell::new(State::Normal));
+        let state = Arc::new(Mutex::new(State::Normal));
 
         EventHandler {
             log,
@@ -258,20 +282,20 @@ impl EventHandler {
     fn on_connection_change(&mut self, connection: ConnectionState) -> Result<()> {
         debug!(self.log, "clipboard connection changed"; "state" => ?connection);
 
-        let state = *self.state.borrow();
+        let state = *self.state.lock().unwrap();
         match (state, connection) {
             (State::Detaching, ConnectionState::Disconnected) => {
-                *self.state.borrow_mut() = State::Normal;
+                *self.state.lock().unwrap() = State::Normal;
                 self.service.signal_detach_state_change(DetachState::DetachCompleted);
                 debug!(self.log, "detachment procedure completed");
                 Ok(())
             },
             (State::Normal, ConnectionState::Connected) => {
-                { *self.state.borrow_mut() = State::Attaching; }
+                { *self.state.lock().unwrap() = State::Attaching; }
                 self.schedule_task_attach()
             },
             _ => {
-                error!(self.log, "invalid state"; "state" => ?(*self.state.borrow(), state));
+                error!(self.log, "invalid state"; "state" => ?(*self.state.lock().unwrap(), state));
                 Ok(())
             },
         }
@@ -283,16 +307,16 @@ impl EventHandler {
             return Ok(());
         }
 
-        let state = *self.state.borrow();
+        let state = *self.state.lock().unwrap();
         match state {
             State::Normal => {
                 debug!(self.log, "clipboard detach requested");
-                *self.state.borrow_mut() = State::Detaching;
+                *self.state.lock().unwrap() = State::Detaching;
                 self.schedule_task_detach()
             },
             State::Detaching => {
                 debug!(self.log, "clipboard detach-abort requested");
-                *self.state.borrow_mut() = State::Aborting;
+                *self.state.lock().unwrap() = State::Aborting;
                 self.service.signal_detach_state_change(DetachState::DetachAborted);
                 self.schedule_task_detach_abort()
             },
@@ -310,95 +334,72 @@ impl EventHandler {
             error!(self.log, "unknown error event"; "code" => err);
         }
 
-        if *self.state.borrow() == State::Detaching {
-            *self.state.borrow_mut() = State::Aborting;
+        if *self.state.lock().unwrap() == State::Detaching {
+            *self.state.lock().unwrap() = State::Aborting;
             self.schedule_task_detach_abort()
         } else {
             Ok(())
         }
     }
 
-
     fn schedule_task_attach(&mut self) -> Result<()> {
         let log = self.log.clone();
-        let task = future::lazy(move || {
-            debug!(log, "subprocess: delaying attach process");
-            Ok(())
-        });
-
         let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
-        let task = task.and_then(move |_| {
-            // any error here (shutdown, at_capacity) is a failure in program logic
-            tokio_timer::sleep(delay).map_err(|e| panic!(e))
-        });
+        let handler = self.config.handler.attach.clone();
+        let dir = self.config.dir.clone();
+        let state = self.state.clone();
+        let service = self.service.clone();
 
-        let handler = self.config.handler.attach.as_ref();
-        if let Some(ref path) = handler {
-            let mut command = Command::new(path);
-            command.current_dir(&self.config.dir);
+        let task = async move {
+            debug!(log, "subprocess: delaying attach process");
+            tokio::time::delay_for(delay).await;
 
-            let log = self.log.clone();
-            let task = task.and_then(move |_| {
-                debug!(log, "subprocess: attach started");
-                command.output_async()
-            });
+            if let Some(path) = handler {
+                debug!(log, "subprocess: attach started, executing '{}'", path.display());
 
-            let log = self.log.clone();
-            let state = self.state.clone();
-            let service = self.service.clone();
-            let task = task.map_err(|e| Error::with(e, ErrorKind::Process));
-            let task = task.and_then(move |output| {
-                debug!(log, "subprocess: attach finished");
+                let output = Command::new(path)
+                    .current_dir(dir)
+                    .output().await
+                    .context(ErrorKind::Process)?;
+
                 log_process_output(&log, &output);
+                debug!(log, "subprocess: attach finished");
 
-                *state.borrow_mut() = State::Normal;
-                service.signal_detach_state_change(DetachState::AttachCompleted);
-                Ok(())
-            });
-
-            self.schedule_process_task(Box::new(task))
-
-        } else {
-            let log = self.log.clone();
-            let state = self.state.clone();
-            let service = self.service.clone();
-            let task = task.map_err(|e| Error::with(e, ErrorKind::Runtime));
-            let task = task.and_then(move |_| {
+            } else {
                 debug!(log, "subprocess: no attach handler executable");
+            }
 
-                *state.borrow_mut() = State::Normal;
-                service.signal_detach_state_change(DetachState::AttachCompleted);
-                Ok(())
-            });
+            *state.lock().unwrap() = State::Normal;
+            service.signal_detach_state_change(DetachState::AttachCompleted);
 
-            self.schedule_process_task(Box::new(task))
-        }
+            Ok(())
+        };
+
+        self.schedule_process_task(Box::pin(task))
     }
 
     fn schedule_task_detach(&mut self) -> Result<()> {
-        let handler = self.config.handler.detach.as_ref();
+        let log = self.log.clone();
+        let handler = self.config.handler.detach.clone();
+        let dir = self.config.dir.clone();
+        let state = self.state.clone();
+        let device = self.device.clone();
 
-        if let Some(ref path) = handler {
-            let mut command = Command::new(path);
-            command.current_dir(&self.config.dir);
-            command.env("EXIT_DETACH_COMMENCE", "0");
-            command.env("EXIT_DETACH_ABORT", "1");
-
-            let log = self.log.clone();
-            let task = future::lazy(move || {
+        let task = async move {
+            if let Some(ref path) = handler {
                 debug!(log, "subprocess: detach started");
-                command.output_async()
-            });
 
-            let log = self.log.clone();
-            let state = self.state.clone();
-            let device = self.device.clone();
-            let task = task.map_err(|e| Error::with(e, ErrorKind::Process));
-            let task = task.and_then(move |output| {
-                debug!(log, "subprocess: detach finished");
+                let output = Command::new(path)
+                    .current_dir(dir)
+                    .env("EXIT_DETACH_COMMENCE", "0")
+                    .env("EXIT_DETACH_ABORT", "1")
+                    .output().await
+                    .context(ErrorKind::Process)?;
+
                 log_process_output(&log, &output);
+                debug!(log, "subprocess: detach finished");
 
-                if *state.borrow() == State::Detaching {
+                if *state.lock().unwrap() == State::Detaching {
                     if output.status.success() {
                         debug!(log, "commencing detach, opening latch");
                         device.commands().latch_open()?;
@@ -410,79 +411,63 @@ impl EventHandler {
                     debug!(log, "state changed during detachment, not opening latch");
                 }
 
-                Ok(())
-            });
-
-            self.schedule_process_task(Box::new(task))
-
-        } else {
-            let log = self.log.clone();
-            let state = self.state.clone();
-            let device = self.device.clone();
-            let task = future::lazy(move || {
+            } else {
                 debug!(log, "subprocess: no detach handler executable");
 
-                if *state.borrow() == State::Detaching {
+                if *state.lock().unwrap() == State::Detaching {
                     debug!(log, "commencing detach, opening latch");
                     device.commands().latch_open()?;
                 } else {
                     debug!(log, "state changed during detachment, not opening latch");
                 }
+            }
 
-                Ok(())
-            });
+            Ok(())
+        };
 
-            self.schedule_process_task(Box::new(task))
-        }
+        self.schedule_process_task(Box::pin(task))
     }
 
     fn schedule_task_detach_abort(&mut self) -> Result<()> {
-        let handler = self.config.handler.detach_abort.as_ref();
+        let log = self.log.clone();
+        let handler = self.config.handler.detach_abort.clone();
+        let dir = self.config.dir.clone();
+        let state = self.state.clone();
 
-        if let Some(ref path) = handler {
-            let mut command = Command::new(path);
-            command.current_dir(&self.config.dir);
-
-            let log = self.log.clone();
-            let task = future::lazy(move || {
+        let task = async move {
+            if let Some(ref path) = handler {
                 debug!(log, "subprocess: detach_abort started");
-                command.output_async()
-            });
 
-            let log = self.log.clone();
-            let state = self.state.clone();
-            let task = task.map_err(|e| Error::with(e, ErrorKind::Process));
-            let task = task.and_then(move |output| {
-                debug!(log, "subprocess: detach_abort finished");
+                let output = Command::new(path)
+                    .current_dir(dir)
+                    .output().await
+                    .context(ErrorKind::Process)?;
+
                 log_process_output(&log, &output);
+                debug!(log, "subprocess: detach_abort finished");
 
-                *state.borrow_mut() = State::Normal;
-                Ok(())
-            });
-
-            self.schedule_process_task(Box::new(task))
-        } else {
-            let log = self.log.clone();
-            let state = self.state.clone();
-            let task = future::lazy(move || {
+            } else {
                 debug!(log, "subprocess: no detach_abort handler executable");
+            }
 
-                *state.borrow_mut() = State::Normal;
-                Ok(())
-            });
+            *state.lock().unwrap() = State::Normal;
+            Ok(())
+        };
 
-            self.schedule_process_task(Box::new(task))
-        }
+        self.schedule_process_task(Box::pin(task))
     }
 
     fn schedule_process_task(&mut self, task: BoxedTask) -> Result<()> {
-        let res = self.task_queue_tx.try_send(Box::new(task));
-        if let Err(e) = res {
-            if e.is_full() {
+        use tokio::sync::mpsc::error::TrySendError;
+
+        match self.task_queue_tx.try_send(task) {
+            Err(TrySendError::Full(_)) => {
                 warn!(self.log, "process queue is full, dropping task");
-            } else {
+            },
+            Err(TrySendError::Closed(_)) => {
                 unreachable!("process queue closed");
-            }
+            },
+            Ok(_) => {},
         }
 
         Ok(())

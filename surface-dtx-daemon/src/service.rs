@@ -1,22 +1,15 @@
-use crate::error::{Result, ResultExt, Error, ErrorKind, ErrorStr};
+use crate::error::Result;
 use crate::device::{Device, OpMode};
 
-use std::rc::Rc;
-use std::sync::Arc;
-use std::cell::Cell;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 use slog::{Logger, debug};
 
-use dbus::{Connection, SignalArgs};
-use dbus::tree::{MTFn, ObjectPath, Interface, Signal, Property, Access, EmitsChangedSignal};
-use dbus::tree::MethodErr;
-
-use dbus_tokio::AConnection;
-use dbus_tokio::tree::{ATree, AFactory, ATreeServer};
-
-use tokio::prelude::*;
-use tokio::reactor::Handle;
-use tokio::runtime::current_thread::Runtime;
+use dbus::Message;
+use dbus::nonblock::SyncConnection;
+use dbus::channel::Sender;
+use dbus_crossroads::{MethodErr, Crossroads, IfaceBuilder};
 
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -41,126 +34,82 @@ impl DetachState {
 
 pub struct Service {
     log: Logger,
-    connection: Rc<Connection>,
-    object: Arc<ObjectPath<MTFn<ATree<()>>, ATree<()>>>,
-    iface: Arc<Interface<MTFn<ATree<()>>, ATree<()>>>,
-    sig_detach_state: Arc<Signal<ATree<()>>>,
-    prop_device_mode: Arc<Property<MTFn<ATree<()>>, ATree<()>>>,
-    prop_device_mode_val: Arc<Cell<OpMode>>,
+    mode: Mutex<OpMode>,
+    conn: Arc<SyncConnection>,
 }
 
 impl Service {
-    pub fn task(&self, rt: &mut Runtime) -> Result<impl Future<Item=(), Error=Error>> {
-        let factory = AFactory::new_afn::<()>();
-
-        let tree: Arc<_> = factory.tree(ATree::new())
-            .add(self.object.clone())
-            .into();
-
-        tree.set_registered(&self.connection, true)
-            .context(ErrorKind::DBusService)?;
-
-        let aconn = AConnection::new(self.connection.clone(), Handle::default(), rt)
-            .context(ErrorKind::DBusService)?;
-
-        let msgs = aconn.messages()
-            .map_err(ErrorStr::from)
-            .context(ErrorKind::DBusService)?;
-
-        let server = ATreeServer::new(self.connection.clone(), tree, msgs);
-
-        let task = server.for_each(|_| Ok(()))
-            .map_err(|_| ErrorKind::DBusService.into());
-
-        Ok(task)
-    }
-
-    pub fn set_device_mode(&self, mode: OpMode) {
-        let old = self.prop_device_mode_val.replace(mode);
+    pub fn set_device_mode(&self, new: OpMode) {
+        let old = {
+            let mut mode = self.mode.lock().unwrap();
+            std::mem::replace(&mut *mode, new)
+        };
 
         debug!(self.log, "service: changing device mode";
-               "old" => old.as_str(), "new" => mode.as_str());
+              "old" => old.as_str(), "new" => new.as_str());
 
-        if mode != old {
-            // signal property changed
-            let mut chg = Vec::new();
-            self.prop_device_mode.add_propertieschanged(&mut chg, self.iface.get_name(), || {
-                Box::new(mode.as_str().to_owned()) as _
-            });
+        // signal property changed
+        if old != new {
+            use dbus::arg::{Variant, RefArg};
+            use dbus::message::SignalArgs;
+            use dbus::ffidisp::stdintf::org_freedesktop_dbus as dbffi;
+            use dbffi::PropertiesPropertiesChanged as PropertiesChanged;
 
-            let msg = chg.first().unwrap().to_emit_message(self.object.get_name());
+            let mut changed: HashMap<String, Variant<Box<dyn RefArg>>> = HashMap::new();
+            changed.insert("DeviceMode".into(), Variant(Box::new(new.as_str().to_owned())));
 
-            // this will only fail due to lack of memory
-            self.connection.send(msg).unwrap();
+            let changed = PropertiesChanged {
+                interface_name: "org.surface.dtx".into(),
+                changed_properties: changed,
+                invalidated_properties: Vec::new(),
+            };
+
+            let msg = changed.to_emit_message(&"/org/surface/dtx".into());
+            self.conn.send(msg).unwrap();
         }
     }
 
     pub fn signal_detach_state_change(&self, state: DetachState) {
-        let msg = self.sig_detach_state.msg(self.object.get_name(), self.iface.get_name())
-            .append1(state.as_str());
+        let msg = Message::new_signal("/org/surface/dtx", "org.surface.dtx", "DetachStateChanged")
+                .unwrap()
+                .append1(state.as_str());
 
         debug!(self.log, "service: sending detach-state-change signal";
                "value" => state.as_str());
 
-        // this will only fail due to lack of memory
-        self.connection.send(msg).unwrap();
+        self.conn.send(msg).unwrap();
     }
 }
 
 
-pub fn build(log: Logger, connection: Rc<Connection>, device: Rc<Device>) -> Result<Service> {
-    let factory = AFactory::new_afn::<()>();
-
-    connection.register_name("org.surface.dtx", dbus::NameFlag::ReplaceExisting as u32)
-        .context(ErrorKind::DBusService)?;
-
-    // detach-state signal
-    let state_signal: Arc<_> = factory.signal("DetachStateChanged", ())
-        .sarg::<&str, _>("state")
-        .into();
-
-    // device-mode property
-    let device_mode_val = Arc::new(Cell::new(OpMode::Laptop));
-    let device_mode = factory.property::<&str, _>("DeviceMode", ())
-        .emits_changed(EmitsChangedSignal::True)
-        .access(Access::Read);
-
-    let val = device_mode_val.clone();
-    let device_mode = device_mode.on_get(move |i, _m| {
-        i.append(val.get().as_str());
-        Ok(())
-    });
-
-    let device_mode = Arc::new(device_mode);
-
-    // request method
-    let dtxreq = factory.method("Request", (), move |m| {
-        match device.commands().latch_request() {
-            Ok(()) => { Ok(vec![m.msg.method_return()]) },
-            Err(e) => { Err(MethodErr::failed(&e)) },
-        }
-    });
-
-    // interface
-    let iface: Arc<_> = factory.interface("org.surface.dtx", ())
-        .add_m(dtxreq)
-        .add_s(state_signal.clone())
-        .add_p(device_mode.clone())
-        .into();
-
-    // object
-    let object: Arc<_> = factory.object_path("/org/surface/dtx", ())
-        .introspectable()
-        .add(iface.clone())
-        .into();
-
-    Ok(Service {
+pub fn build(log: Logger, cr: &mut Crossroads, c: Arc<SyncConnection>, device: Arc<Device>)
+        -> Result<Arc<Service>>
+{
+    let service = Arc::new(Service {
         log,
-        connection,
-        object,
-        iface,
-        sig_detach_state: state_signal,
-        prop_device_mode: device_mode,
-        prop_device_mode_val: device_mode_val,
-    })
+        mode: Mutex::new(OpMode::Laptop),
+        conn: c,
+    });
+
+    let iface_token = cr.register("org.surface.dtx", |b: &mut IfaceBuilder<Arc<Service>>| {
+        // detach-state signal
+        // TODO: replace with property ?
+        b.signal::<(String,), _>("DetachStateChanged", ("state",));
+
+        // device-mode property
+        b.property("DeviceMode")
+            .emits_changed_true()
+            .get(|_, service| { Ok(service.mode.lock().unwrap().as_str().to_owned()) });
+
+        // request method
+        b.method("Request", (), (), move |_, _, _: ()| {
+            match device.commands().latch_request() {
+                Ok(()) => { Ok(()) },
+                Err(e) => { Err(MethodErr::failed(&e)) },
+            }
+        });
+    });
+
+    cr.insert("/org/surface/dtx", &[iface_token], service.clone());
+    Ok(service)
 }

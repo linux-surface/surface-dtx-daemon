@@ -1,9 +1,12 @@
 use std::convert::TryFrom;
-use std::{fs::File, path::Path, os::unix::io::AsRawFd};
-use std::io::BufReader;
+use std::path::Path;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::os::unix::io::AsRawFd;
 
-use tokio::prelude::*;
-use tokio::reactor::PollEvented2;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{BufReader, AsyncBufRead};
+use tokio::stream::Stream;
 
 use nix::{ioctl_none, ioctl_read};
 
@@ -19,17 +22,27 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn open() -> Result<Self> {
-        Device::open_path(DEFAULT_EVENT_FILE_PATH)
+    pub async fn open() -> Result<Self> {
+        Device::open_path(DEFAULT_EVENT_FILE_PATH).await
     }
 
-    pub fn open_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path).context(ErrorKind::DeviceAccess)?;
+    pub async fn open_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(false)
+                .open(path).await
+                .context(ErrorKind::DeviceAccess)?;
+
         Ok(Device { file })
     }
 
-    pub fn events(&self) -> Result<EventStream> {
-        EventStream::from_file(self.file.try_clone().context(ErrorKind::DeviceAccess)?)
+    pub async fn events(&self) -> Result<EventStream> {
+        let file = self.file
+            .try_clone().await
+            .context(ErrorKind::DeviceAccess)?;
+
+        Ok(EventStream::from_file(file))
     }
 
     #[allow(unused)]
@@ -46,47 +59,36 @@ impl std::os::unix::io::AsRawFd for Device {
 
 
 pub struct EventStream {
-    reader: BufReader<PollEvented2<tokio_file_unix::File<File>>>,
+    reader: BufReader<File>,
 }
 
 impl EventStream {
-    fn from_file(file: File) -> Result<Self> {
-        let file = tokio_file_unix::File::new_nb(file).context(ErrorKind::DeviceAccess)?;
-        let reader = file.into_reader(&Default::default()).context(ErrorKind::DeviceAccess)?;
-        Ok(EventStream { reader })
+    fn from_file(file: File) -> Self {
+        EventStream { reader: BufReader::with_capacity(128, file) }
     }
 }
 
 impl Stream for EventStream {
-    type Item = RawEvent;
-    type Error = Error;
+    type Item = Result<RawEvent>;
 
-    fn poll(&mut self) -> Poll<Option<RawEvent>, Error> {
-        let mut buf = [0; 4];
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let poll = Pin::new(&mut self.reader)
+                .poll_fill_buf(cx)
+                .map_err(|e| Error::with(e, ErrorKind::DeviceIo))?;
 
-        match self.reader.poll_read(&mut buf[..]) {
-            Ok(Async::NotReady) => {
-                Ok(Async::NotReady)
-            },
-            Ok(Async::Ready(4)) => {
+        match poll {
+            Poll::Ready(buf) if buf.len() >= 4 => {
                 let evt = RawEvent {
                     typ:  buf[0],
                     code: buf[1],
                     arg0: buf[2],
                     arg1: buf[3],
                 };
-                Ok(Async::Ready(Some(evt)))
+
+                Pin::new(&mut self.reader).consume(4);
+                Poll::Ready(Some(Ok(evt)))
             },
-            Ok(Async::Ready(_)) => {
-                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "incomplete event"))
-                    .context(ErrorKind::DeviceIo)
-                    .map_err(Into::into)
-            },
-            Err(e) => {
-                Err(e)
-                    .context(ErrorKind::DeviceIo)
-                    .map_err(Into::into)
-            },
+            _ => Poll::Pending,
         }
     }
 }

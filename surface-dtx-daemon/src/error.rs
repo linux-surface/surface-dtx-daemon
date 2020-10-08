@@ -20,9 +20,6 @@ pub enum ErrorKind {
     #[fail(display = "Device I/O failure")]
     DeviceIo,
 
-    #[fail(display = "Runtime failure")]
-    Runtime,
-
     #[fail(display = "Failed to run external process")]
     Process,
 
