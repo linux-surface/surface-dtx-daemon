@@ -13,7 +13,7 @@ use nix::{ioctl_none, ioctl_read};
 use crate::error::{Result, ResultExt, Error, ErrorKind};
 
 
-const DEFAULT_EVENT_FILE_PATH: &str = "/dev/surface_dtx";
+const DEFAULT_EVENT_FILE_PATH: &str = "/dev/surface/dtx";
 
 
 #[derive(Debug)]
