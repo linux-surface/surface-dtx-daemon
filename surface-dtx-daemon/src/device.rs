@@ -258,7 +258,7 @@ impl<'a> Commands<'a> {
         let mut mode: u32 = 0;
         unsafe {
             dtx_get_device_mode(self.device.as_raw_fd(), &mut mode as *mut u32)
-                .context(ErrorKind::DeviceIo)?
+                    .context(ErrorKind::DeviceIo)?
         };
 
         match mode {
@@ -267,8 +267,8 @@ impl<'a> Commands<'a> {
             2 => Ok(DeviceMode::Studio),
             x => {
                 Err(io::Error::new(io::ErrorKind::InvalidData, "invalid device mode"))
-                    .context(ErrorKind::DeviceIo)
-                    .map_err(Into::into)
+                        .context(ErrorKind::DeviceIo)
+                        .map_err(Into::into)
             },
         }
     }
