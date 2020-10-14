@@ -125,6 +125,19 @@ impl TryFrom<u8> for DeviceMode {
     }
 }
 
+impl TryFrom<u16> for DeviceMode {
+    type Error = u16;
+
+    fn try_from(val: u16) -> std::result::Result<Self, Self::Error> {
+        match val {
+            0 => Ok(DeviceMode::Tablet),
+            1 => Ok(DeviceMode::Laptop),
+            2 => Ok(DeviceMode::Studio),
+            x => Err(x),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionState {
@@ -296,13 +309,18 @@ impl<'a> Commands<'a> {
 
     #[allow(unused)]
     pub fn get_base_info(&self) -> Result<BaseInfo> {
+        use std::io;
+
         let mut info = RawBaseInfo { state: 0, base_id: 0 };
         unsafe {
             dtx_get_base_info(self.device.as_raw_fd(), &mut info as *mut RawBaseInfo)
                     .context(ErrorKind::DeviceIo)?
         };
 
-        let state = ConnectionState::try_from(info.state).unwrap();
+        let state = ConnectionState::try_from(info.state)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid connection state"))
+                .context(ErrorKind::DeviceIo)?;
+
         Ok(BaseInfo { state, base_id: info.base_id })
     }
 
@@ -316,16 +334,11 @@ impl<'a> Commands<'a> {
                     .context(ErrorKind::DeviceIo)?
         };
 
-        match mode {
-            0 => Ok(DeviceMode::Tablet),
-            1 => Ok(DeviceMode::Laptop),
-            2 => Ok(DeviceMode::Studio),
-            x => {
-                Err(io::Error::new(io::ErrorKind::InvalidData, "invalid device mode"))
-                        .context(ErrorKind::DeviceIo)
-                        .map_err(Into::into)
-            },
-        }
+        let mode = DeviceMode::try_from(mode)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid device mode"))
+                .context(ErrorKind::DeviceIo)?;
+
+        Ok(mode)
     }
 }
 
