@@ -270,6 +270,12 @@ impl<'a> Commands<'a> {
     }
 
     #[allow(unused)]
+    pub fn latch_cancel(&self) -> Result<()> {
+        unsafe { dtx_latch_cancel(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
+        Ok(())
+    }
+
+    #[allow(unused)]
     pub fn get_device_mode(&self) -> Result<DeviceMode> {
         use std::io;
 
