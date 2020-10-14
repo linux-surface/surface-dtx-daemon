@@ -42,6 +42,7 @@ impl Device {
             .try_clone().await
             .context(ErrorKind::DeviceAccess)?;
 
+        self.commands().events_enable()?;
         Ok(EventStream::from_file(file))
     }
 
