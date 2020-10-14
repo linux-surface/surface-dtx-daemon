@@ -255,9 +255,9 @@ impl<'a> Commands<'a> {
     pub fn get_device_mode(&self) -> Result<DeviceMode> {
         use std::io;
 
-        let mut mode: u32 = 0;
+        let mut mode: u16 = 0;
         unsafe {
-            dtx_get_device_mode(self.device.as_raw_fd(), &mut mode as *mut u32)
+            dtx_get_device_mode(self.device.as_raw_fd(), &mut mode as *mut u16)
                     .context(ErrorKind::DeviceIo)?
         };
 
@@ -275,8 +275,23 @@ impl<'a> Commands<'a> {
 }
 
 
-ioctl_none!(dtx_latch_lock,      0x11, 0x01);
-ioctl_none!(dtx_latch_unlock,    0x11, 0x02);
-ioctl_none!(dtx_latch_request,   0x11, 0x03);
-ioctl_none!(dtx_latch_confirm,   0x11, 0x04);
-ioctl_read!(dtx_get_device_mode, 0x11, 0x05, u32);
+#[allow(unused)]
+#[repr(C)]
+pub struct RawBaseInfo {
+    state: u16,
+    base_id: u16,
+}
+
+ioctl_none!(dtx_events_enable,    0xa5, 0x21);
+ioctl_none!(dtx_events_disable,   0xa5, 0x22);
+
+ioctl_none!(dtx_latch_lock,       0xa5, 0x23);
+ioctl_none!(dtx_latch_unlock,     0xa5, 0x24);
+ioctl_none!(dtx_latch_request,    0xa5, 0x25);
+ioctl_none!(dtx_latch_confirm,    0xa5, 0x26);
+ioctl_none!(dtx_latch_heartbeat,  0xa5, 0x27);
+ioctl_none!(dtx_latch_cancel,     0xa5, 0x28);
+
+ioctl_read!(dtx_get_base_info,    0xa5, 0x29, RawBaseInfo);
+ioctl_read!(dtx_get_device_mode,  0xa5, 0x2a, u16);
+ioctl_read!(dtx_get_latch_status, 0xa5, 0x2b, u16);
