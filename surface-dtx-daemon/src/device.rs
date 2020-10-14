@@ -264,6 +264,12 @@ impl<'a> Commands<'a> {
     }
 
     #[allow(unused)]
+    pub fn latch_heartbeat(&self) -> Result<()> {
+        unsafe { dtx_latch_heartbeat(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
+        Ok(())
+    }
+
+    #[allow(unused)]
     pub fn get_device_mode(&self) -> Result<DeviceMode> {
         use std::io;
 
