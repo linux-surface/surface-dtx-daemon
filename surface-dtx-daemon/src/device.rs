@@ -246,8 +246,8 @@ impl<'a> Commands<'a> {
     }
 
     #[allow(unused)]
-    pub fn latch_open(&self) -> Result<()> {
-        unsafe { dtx_latch_open(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
+    pub fn latch_confirm(&self) -> Result<()> {
+        unsafe { dtx_latch_confirm(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
     }
 
@@ -278,5 +278,5 @@ impl<'a> Commands<'a> {
 ioctl_none!(dtx_latch_lock,      0x11, 0x01);
 ioctl_none!(dtx_latch_unlock,    0x11, 0x02);
 ioctl_none!(dtx_latch_request,   0x11, 0x03);
-ioctl_none!(dtx_latch_open,      0x11, 0x04);
+ioctl_none!(dtx_latch_confirm,   0x11, 0x04);
 ioctl_read!(dtx_get_device_mode, 0x11, 0x05, u32);

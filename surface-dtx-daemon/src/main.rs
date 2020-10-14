@@ -396,7 +396,7 @@ impl EventHandler {
                 if *state.lock().unwrap() == State::Detaching {
                     if output.status.success() {
                         debug!(log, "commencing detach, opening latch");
-                        device.commands().latch_open()?;
+                        device.commands().latch_confirm()?;
                     } else {
                         info!(log, "aborting detach");
                         device.commands().latch_request()?;
@@ -410,7 +410,7 @@ impl EventHandler {
 
                 if *state.lock().unwrap() == State::Detaching {
                     debug!(log, "commencing detach, opening latch");
-                    device.commands().latch_open()?;
+                    device.commands().latch_confirm()?;
                 } else {
                     debug!(log, "state changed during detachment, not opening latch");
                 }
