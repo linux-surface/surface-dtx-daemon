@@ -144,6 +144,24 @@ impl TryFrom<u8> for ConnectionState {
     }
 }
 
+impl TryFrom<u16> for ConnectionState {
+    type Error = u16;
+
+    fn try_from(val: u16) -> std::result::Result<Self, Self::Error> {
+        match val {
+            0 => Ok(ConnectionState::Disconnected),
+            1 => Ok(ConnectionState::Connected),
+            x => Err(x),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaseInfo {
+    state: ConnectionState,
+    base_id: u16,
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatchState {
@@ -277,6 +295,18 @@ impl<'a> Commands<'a> {
     }
 
     #[allow(unused)]
+    pub fn get_base_info(&self) -> Result<BaseInfo> {
+        let mut info = RawBaseInfo { state: 0, base_id: 0 };
+        unsafe {
+            dtx_get_base_info(self.device.as_raw_fd(), &mut info as *mut RawBaseInfo)
+                    .context(ErrorKind::DeviceIo)?
+        };
+
+        let state = ConnectionState::try_from(info.state).unwrap();
+        Ok(BaseInfo { state, base_id: info.base_id })
+    }
+
+    #[allow(unused)]
     pub fn get_device_mode(&self) -> Result<DeviceMode> {
         use std::io;
 
@@ -300,7 +330,6 @@ impl<'a> Commands<'a> {
 }
 
 
-#[allow(unused)]
 #[repr(C)]
 pub struct RawBaseInfo {
     state: u16,
