@@ -194,6 +194,18 @@ impl TryFrom<u8> for LatchState {
     }
 }
 
+impl TryFrom<u16> for LatchState {
+    type Error = u16;
+
+    fn try_from(val: u16) -> std::result::Result<Self, Self::Error> {
+        match val {
+            0 => Ok(LatchState::Closed),
+            1 => Ok(LatchState::Open),
+            x => Err(x),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct RawEvent {
@@ -339,6 +351,23 @@ impl<'a> Commands<'a> {
                 .context(ErrorKind::DeviceIo)?;
 
         Ok(mode)
+    }
+
+    #[allow(unused)]
+    pub fn get_latch_status(&self) -> Result<LatchState> {
+        use std::io;
+
+        let mut status: u16 = 0;
+        unsafe {
+            dtx_get_latch_status(self.device.as_raw_fd(), &mut status as *mut u16)
+                    .context(ErrorKind::DeviceIo)?
+        };
+
+        let status = LatchState::try_from(status)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid latch status"))
+                .context(ErrorKind::DeviceIo)?;
+
+        Ok(status)
     }
 }
 
