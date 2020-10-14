@@ -228,6 +228,18 @@ pub struct Commands<'a> {
 
 impl<'a> Commands<'a> {
     #[allow(unused)]
+    pub fn events_enable(&self) -> Result<()> {
+        unsafe { dtx_events_enable(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
+        Ok(())
+    }
+
+    #[allow(unused)]
+    pub fn events_disable(&self) -> Result<()> {
+        unsafe { dtx_events_disable(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
+        Ok(())
+    }
+
+    #[allow(unused)]
     pub fn latch_lock(&self) -> Result<()> {
         unsafe { dtx_latch_lock(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
