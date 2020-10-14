@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::device::{Device, OpMode};
+use crate::device::{Device, DeviceMode};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -34,12 +34,12 @@ impl DetachState {
 
 pub struct Service {
     log: Logger,
-    mode: Mutex<OpMode>,
+    mode: Mutex<DeviceMode>,
     conn: Arc<SyncConnection>,
 }
 
 impl Service {
-    pub fn set_device_mode(&self, new: OpMode) {
+    pub fn set_device_mode(&self, new: DeviceMode) {
         let old = {
             let mut mode = self.mode.lock().unwrap();
             std::mem::replace(&mut *mode, new)
@@ -87,7 +87,7 @@ pub fn build(log: Logger, cr: &mut Crossroads, c: Arc<SyncConnection>, device: A
 {
     let service = Arc::new(Service {
         log,
-        mode: Mutex::new(OpMode::Laptop),
+        mode: Mutex::new(DeviceMode::Laptop),
         conn: c,
     });
 

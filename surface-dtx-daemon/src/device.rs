@@ -95,30 +95,30 @@ impl Stream for EventStream {
 
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum OpMode {
+pub enum DeviceMode {
     Tablet,
     Laptop,
     Studio,
 }
 
-impl OpMode {
+impl DeviceMode {
     pub fn as_str(self) -> &'static str {
         match self {
-            OpMode::Tablet => "tablet",
-            OpMode::Laptop => "laptop",
-            OpMode::Studio => "studio",
+            DeviceMode::Tablet => "tablet",
+            DeviceMode::Laptop => "laptop",
+            DeviceMode::Studio => "studio",
         }
     }
 }
 
-impl TryFrom<u8> for OpMode {
+impl TryFrom<u8> for DeviceMode {
     type Error = u8;
 
     fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
         match val {
-            0 => Ok(OpMode::Tablet),
-            1 => Ok(OpMode::Laptop),
-            2 => Ok(OpMode::Studio),
+            0 => Ok(DeviceMode::Tablet),
+            1 => Ok(DeviceMode::Laptop),
+            2 => Ok(DeviceMode::Studio),
             x => Err(x),
         }
     }
@@ -174,8 +174,8 @@ pub struct RawEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
-    OpModeChange {
-        mode: OpMode
+    DeviceModeChange {
+        mode: DeviceMode
     },
 
     ConectionChange {
@@ -203,7 +203,7 @@ impl TryFrom<RawEvent> for Event {
                 Event::ConectionChange { state: ConnectionState::try_from(arg0).unwrap(), arg1 }
             },
             RawEvent { typ: 0x11, code: 0x0d, arg0, .. } if arg0 <= 2 => {
-                Event::OpModeChange { mode: OpMode::try_from(arg0).unwrap() }
+                Event::DeviceModeChange { mode: DeviceMode::try_from(arg0).unwrap() }
             },
             RawEvent { typ: 0x11, code: 0x0e, .. } => {
                 Event::DetachRequest
@@ -252,21 +252,21 @@ impl<'a> Commands<'a> {
     }
 
     #[allow(unused)]
-    pub fn get_opmode(&self) -> Result<OpMode> {
+    pub fn get_device_mode(&self) -> Result<DeviceMode> {
         use std::io;
 
-        let mut opmode: u32 = 0;
+        let mut mode: u32 = 0;
         unsafe {
-            dtx_get_opmode(self.device.as_raw_fd(), &mut opmode as *mut u32)
+            dtx_get_device_mode(self.device.as_raw_fd(), &mut mode as *mut u32)
                 .context(ErrorKind::DeviceIo)?
         };
 
-        match opmode {
-            0 => Ok(OpMode::Tablet),
-            1 => Ok(OpMode::Laptop),
-            2 => Ok(OpMode::Studio),
+        match mode {
+            0 => Ok(DeviceMode::Tablet),
+            1 => Ok(DeviceMode::Laptop),
+            2 => Ok(DeviceMode::Studio),
             x => {
-                Err(io::Error::new(io::ErrorKind::InvalidData, "invalid opmode"))
+                Err(io::Error::new(io::ErrorKind::InvalidData, "invalid device mode"))
                     .context(ErrorKind::DeviceIo)
                     .map_err(Into::into)
             },
@@ -275,8 +275,8 @@ impl<'a> Commands<'a> {
 }
 
 
-ioctl_none!(dtx_latch_lock,    0x11, 0x01);
-ioctl_none!(dtx_latch_unlock,  0x11, 0x02);
-ioctl_none!(dtx_latch_request, 0x11, 0x03);
-ioctl_none!(dtx_latch_open,    0x11, 0x04);
-ioctl_read!(dtx_get_opmode,    0x11, 0x05, u32);
+ioctl_none!(dtx_latch_lock,      0x11, 0x01);
+ioctl_none!(dtx_latch_unlock,    0x11, 0x02);
+ioctl_none!(dtx_latch_request,   0x11, 0x03);
+ioctl_none!(dtx_latch_open,      0x11, 0x04);
+ioctl_read!(dtx_get_device_mode, 0x11, 0x05, u32);

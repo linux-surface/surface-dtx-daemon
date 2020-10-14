@@ -7,7 +7,7 @@ mod config;
 use config::Config;
 
 mod device;
-use device::{ConnectionState, Device, Event, LatchState, OpMode, RawEvent};
+use device::{ConnectionState, Device, Event, LatchState, DeviceMode, RawEvent};
 
 mod service;
 use service::{DetachState, Service};
@@ -97,7 +97,7 @@ async fn main() -> CliResult {
             .context(ErrorKind::DBusService)?;
 
         // make sure the device-mode in the service is up to date
-        serv.set_device_mode(device.commands().get_opmode()?);
+        serv.set_device_mode(device.commands().get_device_mode()?);
 
         process_task(queue_rx).await
     };
@@ -230,8 +230,8 @@ impl EventHandler {
         trace!(self.log, "received event"; "event" => ?evt);
 
         match Event::try_from(evt) {
-            Ok(Event::OpModeChange { mode }) => {
-                self.on_opmode_change(mode)
+            Ok(Event::DeviceModeChange { mode }) => {
+                self.on_device_mode_change(mode)
             },
             Ok(Event::ConectionChange { state, .. }) => {
                 self.on_connection_change(state)
@@ -257,7 +257,7 @@ impl EventHandler {
     }
 
 
-    fn on_opmode_change(&mut self, mode: OpMode) -> Result<()> {
+    fn on_device_mode_change(&mut self, mode: DeviceMode) -> Result<()> {
         debug!(self.log, "device mode changed"; "mode" => ?mode);
         self.service.set_device_mode(mode);
         Ok(())
