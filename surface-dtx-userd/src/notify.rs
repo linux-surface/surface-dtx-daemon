@@ -26,7 +26,6 @@ pub struct NotificationHandle {
 }
 
 
-#[allow(unused)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Timeout {
     Unspecified,
@@ -35,7 +34,6 @@ pub enum Timeout {
 }
 
 
-#[allow(unused)]
 impl<'a> Notification<'a> {
     pub fn new<S: Into<Cow<'a, str>>>(app_name: S) -> Self {
         Notification {

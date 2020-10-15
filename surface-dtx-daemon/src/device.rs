@@ -46,7 +46,6 @@ impl Device {
         Ok(EventStream::from_file(file))
     }
 
-    #[allow(unused)]
     pub fn commands(&self) -> Commands {
         Commands { device: &self }
     }
@@ -271,7 +270,6 @@ pub struct Commands<'a> {
 }
 
 impl<'a> Commands<'a> {
-    #[allow(unused)]
     pub fn events_enable(&self) -> Result<()> {
         unsafe { dtx_events_enable(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
@@ -295,13 +293,11 @@ impl<'a> Commands<'a> {
         Ok(())
     }
 
-    #[allow(unused)]
     pub fn latch_request(&self) -> Result<()> {
         unsafe { dtx_latch_request(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
     }
 
-    #[allow(unused)]
     pub fn latch_confirm(&self) -> Result<()> {
         unsafe { dtx_latch_confirm(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
@@ -313,7 +309,6 @@ impl<'a> Commands<'a> {
         Ok(())
     }
 
-    #[allow(unused)]
     pub fn latch_cancel(&self) -> Result<()> {
         unsafe { dtx_latch_cancel(self.device.as_raw_fd()).context(ErrorKind::DeviceIo)? };
         Ok(())
@@ -336,7 +331,6 @@ impl<'a> Commands<'a> {
         Ok(BaseInfo { state, base_id: info.base_id })
     }
 
-    #[allow(unused)]
     pub fn get_device_mode(&self) -> Result<DeviceMode> {
         use std::io;
 
