@@ -39,8 +39,8 @@ impl Device {
 
     pub async fn events(&self) -> Result<EventStream> {
         let file = self.file
-            .try_clone().await
-            .context(ErrorKind::DeviceAccess)?;
+                .try_clone().await
+                .context(ErrorKind::DeviceAccess)?;
 
         self.commands().events_enable()?;
         Ok(EventStream::from_file(file))
