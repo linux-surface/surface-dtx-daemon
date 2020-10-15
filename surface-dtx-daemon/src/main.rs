@@ -7,7 +7,7 @@ mod config;
 use config::Config;
 
 mod device;
-use device::{ConnectionState, Device, Event, LatchState, DeviceMode, RawEvent};
+use device::{ConnectionState, Device, Event, LatchStatus, DeviceMode, RawEvent};
 
 mod service;
 use service::{DetachState, Service};
@@ -236,7 +236,7 @@ impl EventHandler {
             Ok(Event::ConectionChange { state, .. }) => {
                 self.on_connection_change(state)
             },
-            Ok(Event::LatchStateChange { state }) => {
+            Ok(Event::LatchStatusChange { state }) => {
                 self.on_latch_state_change(state)
             },
             Ok(Event::DetachRequest) => {
@@ -263,10 +263,10 @@ impl EventHandler {
         Ok(())
     }
 
-    fn on_latch_state_change(&mut self, state: LatchState) -> Result<()> {
+    fn on_latch_state_change(&mut self, state: LatchStatus) -> Result<()> {
         debug!(self.log, "latch-state changed"; "state" => ?state);
 
-        if state == LatchState::Open {
+        if state == LatchStatus::Open {
             self.service.signal_detach_state_change(DetachState::DetachReady)
         }
 

@@ -176,30 +176,30 @@ pub struct BaseInfo {
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LatchState {
+pub enum LatchStatus {
     Closed,
     Open,
 }
 
-impl TryFrom<u8> for LatchState {
+impl TryFrom<u8> for LatchStatus {
     type Error = u8;
 
     fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
         match val {
-            0 => Ok(LatchState::Closed),
-            1 => Ok(LatchState::Open),
+            0 => Ok(LatchStatus::Closed),
+            1 => Ok(LatchStatus::Open),
             x => Err(x),
         }
     }
 }
 
-impl TryFrom<u16> for LatchState {
+impl TryFrom<u16> for LatchStatus {
     type Error = u16;
 
     fn try_from(val: u16) -> std::result::Result<Self, Self::Error> {
         match val {
-            0 => Ok(LatchState::Closed),
-            1 => Ok(LatchState::Open),
+            0 => Ok(LatchStatus::Closed),
+            1 => Ok(LatchStatus::Open),
             x => Err(x),
         }
     }
@@ -226,8 +226,8 @@ pub enum Event {
         arg1:  u8
     },
 
-    LatchStateChange {
-        state: LatchState
+    LatchStatusChange {
+        state: LatchStatus
     },
 
     DetachError {
@@ -255,7 +255,7 @@ impl TryFrom<RawEvent> for Event {
                 Event::DetachError { err: arg0 }
             },
             RawEvent { typ: 0x11, code: 0x11, arg0, .. } if arg0 <= 1 => {
-                Event::LatchStateChange { state: LatchState::try_from(arg0).unwrap() }
+                Event::LatchStatusChange { state: LatchStatus::try_from(arg0).unwrap() }
             },
             _ => return Err(evt)
         };
@@ -348,7 +348,7 @@ impl<'a> Commands<'a> {
     }
 
     #[allow(unused)]
-    pub fn get_latch_status(&self) -> Result<LatchState> {
+    pub fn get_latch_status(&self) -> Result<LatchStatus> {
         use std::io;
 
         let mut status: u16 = 0;
@@ -357,7 +357,7 @@ impl<'a> Commands<'a> {
                     .context(ErrorKind::DeviceIo)?
         };
 
-        let status = LatchState::try_from(status)
+        let status = LatchStatus::try_from(status)
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid latch status"))
                 .context(ErrorKind::DeviceIo)?;
 
