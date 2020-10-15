@@ -325,7 +325,8 @@ impl<'a> Commands<'a> {
         };
 
         let state = ConnectionState::try_from(info.state)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid connection state"))
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData,
+                        format!("invalid connection state: {}", e)))
                 .context(ErrorKind::DeviceIo)?;
 
         Ok(BaseInfo { state, base_id: info.base_id })
@@ -341,7 +342,8 @@ impl<'a> Commands<'a> {
         };
 
         let mode = DeviceMode::try_from(mode)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid device mode"))
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData,
+                        format!("invalid device mode: {}", e)))
                 .context(ErrorKind::DeviceIo)?;
 
         Ok(mode)
@@ -358,7 +360,8 @@ impl<'a> Commands<'a> {
         };
 
         let status = LatchStatus::try_from(status)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid latch status"))
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData,
+                        format!("invalid latch status: {}", e)))
                 .context(ErrorKind::DeviceIo)?;
 
         Ok(status)
