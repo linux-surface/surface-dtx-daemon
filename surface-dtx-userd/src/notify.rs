@@ -26,6 +26,7 @@ pub struct NotificationHandle {
 }
 
 
+#[allow(unused)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Timeout {
     Unspecified,
@@ -48,10 +49,12 @@ impl<'a> Notification<'a> {
         }
     }
 
+    #[allow(unused)]
     pub fn set_replaces(&mut self, id: u32) {
         self.replaces = id
     }
 
+    #[allow(unused)]
     pub fn set_icon<S: Into<Cow<'a, str>>>(&mut self, icon: S) {
         self.icon = icon.into()
     }
