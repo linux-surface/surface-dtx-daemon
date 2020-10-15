@@ -399,7 +399,7 @@ impl EventHandler {
                         device.commands().latch_confirm()?;
                     } else {
                         info!(log, "aborting detach");
-                        device.commands().latch_request()?;
+                        device.commands().latch_cancel()?;
                     }
                 } else {
                     debug!(log, "state changed during detachment, not opening latch");
