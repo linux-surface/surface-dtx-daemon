@@ -126,6 +126,7 @@ pub enum DeviceMode {
     Tablet,
     Laptop,
     Studio,
+    Unknown(u16),
 }
 
 impl DeviceMode {
@@ -134,32 +135,18 @@ impl DeviceMode {
             DeviceMode::Tablet => "tablet",
             DeviceMode::Laptop => "laptop",
             DeviceMode::Studio => "studio",
+            DeviceMode::Unknown(_) => "<unknown>",
         }
     }
 }
 
-impl TryFrom<u8> for DeviceMode {
-    type Error = u8;
-
-    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
+impl From<u16> for DeviceMode {
+    fn from(val: u16) -> Self {
         match val {
-            0 => Ok(DeviceMode::Tablet),
-            1 => Ok(DeviceMode::Laptop),
-            2 => Ok(DeviceMode::Studio),
-            x => Err(x),
-        }
-    }
-}
-
-impl TryFrom<u16> for DeviceMode {
-    type Error = u16;
-
-    fn try_from(val: u16) -> std::result::Result<Self, Self::Error> {
-        match val {
-            0 => Ok(DeviceMode::Tablet),
-            1 => Ok(DeviceMode::Laptop),
-            2 => Ok(DeviceMode::Studio),
-            x => Err(x),
+            0 => DeviceMode::Tablet,
+            1 => DeviceMode::Laptop,
+            2 => DeviceMode::Studio,
+            x => DeviceMode::Unknown(x),
         }
     }
 }
@@ -169,28 +156,17 @@ impl TryFrom<u16> for DeviceMode {
 pub enum ConnectionState {
     Disconnected,
     Connected,
+    NotFeasible,
+    Unknown(u16)
 }
 
-impl TryFrom<u8> for ConnectionState {
-    type Error = u8;
-
-    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
+impl From<u16> for ConnectionState {
+    fn from(val: u16) -> Self {
         match val {
-            0 => Ok(ConnectionState::Disconnected),
-            1 => Ok(ConnectionState::Connected),
-            x => Err(x),
-        }
-    }
-}
-
-impl TryFrom<u16> for ConnectionState {
-    type Error = u16;
-
-    fn try_from(val: u16) -> std::result::Result<Self, Self::Error> {
-        match val {
-            0 => Ok(ConnectionState::Disconnected),
-            1 => Ok(ConnectionState::Connected),
-            x => Err(x),
+            0x0000 => ConnectionState::Disconnected,
+            0x0001 => ConnectionState::Connected,
+            0x1001 => ConnectionState::NotFeasible,
+            x      => ConnectionState::Unknown(x),
         }
     }
 }
@@ -202,32 +178,58 @@ pub struct BaseInfo {
 }
 
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeError {
+    NotFeasible,
+    Timedout,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HardwareError {
+    FailedToOpen,
+    FailedToRemainOpen,
+    FailedToClose,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatchStatus {
     Closed,
     Open,
+    HwError(HardwareError),
+    Unknown(u16),
 }
 
-impl TryFrom<u8> for LatchStatus {
-    type Error = u8;
-
-    fn try_from(val: u8) -> std::result::Result<Self, Self::Error> {
+impl From<u16> for LatchStatus {
+    fn from(val: u16) -> Self {
         match val {
-            0 => Ok(LatchStatus::Closed),
-            1 => Ok(LatchStatus::Open),
-            x => Err(x),
+            0x0000 => LatchStatus::Closed,
+            0x0001 => LatchStatus::Open,
+            0x2001 => LatchStatus::HwError(HardwareError::FailedToOpen),
+            0x2002 => LatchStatus::HwError(HardwareError::FailedToRemainOpen),
+            0x2003 => LatchStatus::HwError(HardwareError::FailedToClose),
+            x      => LatchStatus::Unknown(x),
         }
     }
 }
 
-impl TryFrom<u16> for LatchStatus {
-    type Error = u16;
 
-    fn try_from(val: u16) -> std::result::Result<Self, Self::Error> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetachError {
+    RtError(RuntimeError),
+    HwError(HardwareError),
+    Unknown(u16),
+}
+
+impl From<u16> for DetachError {
+    fn from(val: u16) -> Self {
         match val {
-            0 => Ok(LatchStatus::Closed),
-            1 => Ok(LatchStatus::Open),
-            x => Err(x),
+            0x1001 => DetachError::RtError(RuntimeError::NotFeasible),
+            0x1002 => DetachError::RtError(RuntimeError::Timedout),
+            0x2001 => DetachError::HwError(HardwareError::FailedToOpen),
+            0x2002 => DetachError::HwError(HardwareError::FailedToRemainOpen),
+            0x2003 => DetachError::HwError(HardwareError::FailedToClose),
+            x      => DetachError::Unknown(x),
         }
     }
 }
@@ -245,11 +247,11 @@ pub enum Event {
     },
 
     LatchStatusChange {
-        state: LatchStatus
+        state: LatchStatus,
     },
 
     DetachError {
-        err: u16
+        err: DetachError,
     },
 
     DetachRequest,
@@ -264,23 +266,24 @@ impl TryFrom<RawEvent> for Event {
                 Event::DetachRequest
             },
             RawEvent { code: 2, data } if data.len() == 2 => {
-                Event::DetachError { err: u16::from_ne_bytes(data[0..2].try_into().unwrap()) }
+                let err = u16::from_ne_bytes(data[0..2].try_into().unwrap()).into();
+                Event::DetachError { err }
             },
             RawEvent { code: 3, data } if data.len() == 4 => {
-                let state = u16::from_ne_bytes(data[0..2].try_into().unwrap());
+                let state = u16::from_ne_bytes(data[0..2].try_into().unwrap()).into();
 
                 Event::ConectionChange {
-                    state: state.try_into().unwrap(),
+                    state,
                     base_id: u16::from_ne_bytes(data[2..4].try_into().unwrap()),
                 }
             },
             RawEvent { code: 4, data } if data.len() == 2 => {
-                let state = u16::from_ne_bytes(data[0..2].try_into().unwrap());
-                Event::LatchStatusChange { state: state.try_into().unwrap() }
+                let state = u16::from_ne_bytes(data[0..2].try_into().unwrap()).into();
+                Event::LatchStatusChange { state }
             },
             RawEvent { code: 5, data } if data.len() == 2 => {
-                let mode = u16::from_ne_bytes(data[0..2].try_into().unwrap());
-                Event::DeviceModeChange { mode: mode.try_into().unwrap() }
+                let mode = u16::from_ne_bytes(data[0..2].try_into().unwrap()).into();
+                Event::DeviceModeChange { mode }
             },
             _ => return Err(evt)
         };

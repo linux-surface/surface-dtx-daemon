@@ -7,7 +7,7 @@ mod config;
 use config::Config;
 
 mod device;
-use device::{ConnectionState, Device, Event, LatchStatus, DeviceMode, RawEvent};
+use device::{ConnectionState, Device, Event, LatchStatus, DeviceMode, RawEvent, DetachError};
 
 mod service;
 use service::{DetachState, Service};
@@ -284,6 +284,14 @@ impl EventHandler {
                 { *self.state.lock().unwrap() = State::Attaching; }
                 self.schedule_task_attach()
             },
+            (_, ConnectionState::NotFeasible) => {
+                info!(self.log, "connection changed to not feasible";
+                      "state" => ?(state, connection));
+
+                // TODO: what to do here?
+
+                Ok(())
+            },
             _ => {
                 error!(self.log, "invalid state"; "state" => ?(state, connection));
                 Ok(())
@@ -317,11 +325,11 @@ impl EventHandler {
         }
     }
 
-    fn on_detach_error(&mut self, err: u16) -> Result<()> {
-        if err == 0x02 {
-            debug!(self.log, "detachment procedure: timed out");
-        } else {
-            error!(self.log, "unknown error event"; "code" => err);
+    fn on_detach_error(&mut self, err: DetachError) -> Result<()> {
+        match err {
+            DetachError::RtError(e) => info!(self.log, "detachment procedure canceled: {:?}", e),
+            DetachError::HwError(e) => warn!(self.log, "hardware failure, aborting detahment: {:?}", e),
+            DetachError::Unknown(x) => error!(self.log, "unknown failure, aborting detahment: {}", x),
         }
 
         if *self.state.lock().unwrap() == State::Detaching {
