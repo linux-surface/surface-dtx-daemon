@@ -24,6 +24,7 @@ slog-term = "2.6.0"
 tokio = { version = "0.2.22", features = ["stream", "fs", "sync", "process", "signal"] }
 toml = "0.5.6"
 futures = "0.3.6"
+smallvec = "1.4.2"
 
 [build-dependencies]
 clap = "2.33.3"

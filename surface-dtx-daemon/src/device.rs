@@ -1,8 +1,10 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::path::Path;
 use std::pin::Pin;
 use std::os::unix::io::AsRawFd;
 use std::task::{Context, Poll};
+
+use smallvec::SmallVec;
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncBufRead, BufReader};
@@ -76,21 +78,46 @@ impl Stream for EventStream {
                 .poll_fill_buf(cx)
                 .map_err(|e| Error::with(e, ErrorKind::DeviceIo))?;
 
-        match poll {
-            Poll::Ready(buf) if buf.len() >= 4 => {
-                let evt = RawEvent {
-                    typ:  buf[0],
-                    code: buf[1],
-                    arg0: buf[2],
-                    arg1: buf[3],
-                };
+        let buf = match poll {
+            Poll::Ready(buf) if buf.len() >= 4 => buf,
+            _ => return Poll::Pending,
+        };
 
-                Pin::new(&mut self.reader).consume(4);
-                Poll::Ready(Some(Ok(evt)))
-            },
-            _ => Poll::Pending,
+        let hdr_len = std::mem::size_of::<EventHeader>();
+        let hdr = EventHeader::from_bytes(buf[0..hdr_len].try_into().unwrap());
+        let len = hdr_len + hdr.len as usize;
+
+        if buf.len() < len {
+            return Poll::Pending;
         }
+
+        let evt = RawEvent {
+            code: hdr.code,
+            data: SmallVec::from_slice(&buf[hdr_len..len])
+        };
+
+        Pin::new(&mut self.reader).consume(len);
+        Poll::Ready(Some(Ok(evt)))
     }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct EventHeader {
+    len: u16,
+    code: u16,
+}
+
+impl EventHeader {
+    fn from_bytes(bytes: [u8; std::mem::size_of::<Self>()]) -> Self {
+        unsafe { std::mem::transmute(bytes) }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RawEvent {
+    pub code: u16,
+    pub data: SmallVec<[u8; 4]>,
 }
 
 
@@ -206,15 +233,6 @@ impl TryFrom<u16> for LatchStatus {
 }
 
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct RawEvent {
-    pub typ:  u8,
-    pub code: u8,
-    pub arg0: u8,
-    pub arg1: u8,
-}
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     DeviceModeChange {
@@ -223,7 +241,7 @@ pub enum Event {
 
     ConectionChange {
         state: ConnectionState,
-        arg1:  u8
+        base_id: u16
     },
 
     LatchStatusChange {
@@ -231,7 +249,7 @@ pub enum Event {
     },
 
     DetachError {
-        err: u8
+        err: u16
     },
 
     DetachRequest,
@@ -242,20 +260,27 @@ impl TryFrom<RawEvent> for Event {
 
     fn try_from(evt: RawEvent) -> std::result::Result<Self, Self::Error> {
         let evt = match evt {
-            RawEvent { typ: 0x11, code: 0x0c, arg0, arg1 } if arg0 <= 1 => {
-                Event::ConectionChange { state: ConnectionState::try_from(arg0).unwrap(), arg1 }
-            },
-            RawEvent { typ: 0x11, code: 0x0d, arg0, .. } if arg0 <= 2 => {
-                Event::DeviceModeChange { mode: DeviceMode::try_from(arg0).unwrap() }
-            },
-            RawEvent { typ: 0x11, code: 0x0e, .. } => {
+            RawEvent { code: 1, data } if data.len() == 0 => {
                 Event::DetachRequest
             },
-            RawEvent { typ: 0x11, code: 0x0f, arg0, .. } => {
-                Event::DetachError { err: arg0 }
+            RawEvent { code: 2, data } if data.len() == 2 => {
+                Event::DetachError { err: u16::from_ne_bytes(data[0..2].try_into().unwrap()) }
             },
-            RawEvent { typ: 0x11, code: 0x11, arg0, .. } if arg0 <= 1 => {
-                Event::LatchStatusChange { state: LatchStatus::try_from(arg0).unwrap() }
+            RawEvent { code: 3, data } if data.len() == 4 => {
+                let state = u16::from_ne_bytes(data[0..2].try_into().unwrap());
+
+                Event::ConectionChange {
+                    state: state.try_into().unwrap(),
+                    base_id: u16::from_ne_bytes(data[2..4].try_into().unwrap()),
+                }
+            },
+            RawEvent { code: 4, data } if data.len() == 2 => {
+                let state = u16::from_ne_bytes(data[0..2].try_into().unwrap());
+                Event::LatchStatusChange { state: state.try_into().unwrap() }
+            },
+            RawEvent { code: 5, data } if data.len() == 2 => {
+                let mode = u16::from_ne_bytes(data[0..2].try_into().unwrap());
+                Event::DeviceModeChange { mode: mode.try_into().unwrap() }
             },
             _ => return Err(evt)
         };

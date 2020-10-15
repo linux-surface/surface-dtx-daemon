@@ -246,11 +246,7 @@ impl EventHandler {
                 self.on_detach_error(err)
             },
             Err(evt) => {
-                warn!(self.log, "unhandled event";
-                    "type" => evt.typ,  "code" => evt.code,
-                    "arg0" => evt.arg0, "arg1" => evt.arg1
-                );
-
+                warn!(self.log, "unhandled event"; "code" => evt.code, "data" => ?evt.data);
                 Ok(())
             },
         }
@@ -321,7 +317,7 @@ impl EventHandler {
         }
     }
 
-    fn on_detach_error(&mut self, err: u8) -> Result<()> {
+    fn on_detach_error(&mut self, err: u16) -> Result<()> {
         if err == 0x02 {
             debug!(self.log, "detachment procedure: timed out");
         } else {
