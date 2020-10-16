@@ -262,7 +262,7 @@ impl TryFrom<RawEvent> for Event {
 
     fn try_from(evt: RawEvent) -> std::result::Result<Self, Self::Error> {
         let evt = match evt {
-            RawEvent { code: 1, data } if data.len() == 0 => {
+            RawEvent { code: 1, data } if data.is_empty() => {
                 Event::DetachRequest
             },
             RawEvent { code: 2, data } if data.len() == 2 => {
