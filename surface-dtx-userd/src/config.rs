@@ -72,10 +72,9 @@ impl Default for LogLevel {
     }
 }
 
-
-impl Into<slog::Level> for LogLevel {
-    fn into(self) -> slog::Level {
-        match self {
+impl From<LogLevel> for slog::Level {
+    fn from(value: LogLevel) -> slog::Level {
+        match value {
             LogLevel::Critical => slog::Level::Critical,
             LogLevel::Error    => slog::Level::Error,
             LogLevel::Warning  => slog::Level::Warning,

@@ -191,5 +191,5 @@ fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {
         crit!(log, "Caused by: {}", cause);
     }
 
-    panic!(format!("{}", err))
+    panic!("{}", err)
 }
