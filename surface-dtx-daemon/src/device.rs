@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncBufRead, BufReader};
-use tokio::stream::Stream;
+use tokio_stream::Stream;
 
 use nix::{ioctl_none, ioctl_read};
 

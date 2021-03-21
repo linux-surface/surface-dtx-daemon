@@ -39,7 +39,7 @@ fn logger(config: &Config) -> Logger {
     Logger::root(drain, o!())
 }
 
-#[tokio::main(core_threads = 1, max_threads = 1)]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> CliResult {
     let matches = cli::app().get_matches();
 

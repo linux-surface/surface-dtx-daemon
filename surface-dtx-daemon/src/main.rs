@@ -35,7 +35,7 @@ use slog::{crit, debug, error, info, o, trace, warn, Logger};
 
 
 fn logger(config: &Config) -> Logger {
-    use slog::{Drain};
+    use slog::Drain;
 
     let decorator = slog_term::TermDecorator::new()
         .build();
@@ -52,7 +52,7 @@ fn logger(config: &Config) -> Logger {
     Logger::root(drain, o!())
 }
 
-#[tokio::main(core_threads = 1)]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> CliResult {
     let matches = cli::app().get_matches();
 
@@ -120,7 +120,7 @@ async fn main() -> CliResult {
         res = shutdown_signal => res.map(Some),
         res = event_task => res.map(|_| None),
         _ = process_task => Ok(None),
-        err = dbus_rsrc => Err(Error::with_compat(err, ErrorKind::DBusService)),
+        err = dbus_rsrc => Err(Error::with_compat(Box::new(err), ErrorKind::DBusService)),
     };
 
     // wait for shutdown driver to complete
@@ -147,8 +147,8 @@ where
 
     // wait for first signal
     let sig = tokio::select! {
-        _ = sigint.next()  => "SIGINT",
-        _ = sigterm.next() => "SIGTERM",
+        _ = sigint.recv()  => "SIGINT",
+        _ = sigterm.recv() => "SIGTERM",
     };
 
     info!(log, "received {}, shutting down...", sig);
@@ -156,8 +156,8 @@ where
     // schedule driver for completion
     let driver = async move {
         let tval = tokio::select! {
-            _ = sigint.next()  =>  2,   // = value of SIGINT
-            _ = sigterm.next() => 15,   // = value of SIGTERM
+            _ = sigint.recv()  =>  2,   // = value of SIGINT
+            _ = sigterm.recv() => 15,   // = value of SIGTERM
             _ = shutdown_task  =>  0,
         };
 
@@ -350,7 +350,7 @@ impl EventHandler {
 
         let task = async move {
             debug!(log, "subprocess: delaying attach process");
-            tokio::time::delay_for(delay).await;
+            tokio::time::sleep(delay).await;
 
             if let Some(path) = handler {
                 debug!(log, "subprocess: attach started, executing '{}'", path.display());
