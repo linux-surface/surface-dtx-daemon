@@ -2,9 +2,9 @@ use clap::{App, Arg};
 
 pub fn app() -> App<'static, 'static> {
     App::new("Surface DTX User Daemon")
-        .about("Detachment System User Daemon for Surface Book 2.")
+        .about(clap::crate_description!())
         .version(clap::crate_version!())
-        .author("Maximilian Luz <luzmaximilian@gmail.com>")
+        .author(clap::crate_authors!())
         .arg(Arg::with_name("config")
             .short("c")
             .long("config")
