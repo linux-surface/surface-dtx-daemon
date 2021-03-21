@@ -29,7 +29,7 @@ jobs:
       run: sudo apt-get install libdbus-1-dev
 
     - name: Run clippy
-      run: cargo clippy --all --all-features -- -Dwarnings -Aclippy::unnecessary_wraps
+      run: cargo clippy --all --all-features -- -Dwarnings
 
   test:
     name: Test
