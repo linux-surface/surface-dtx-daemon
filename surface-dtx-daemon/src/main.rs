@@ -225,51 +225,47 @@ impl EventHandler {
         }
     }
 
-
     fn handle(&mut self, evt: RawEvent) -> Result<()> {
         trace!(self.log, "received event"; "event" => ?evt);
 
         match Event::try_from(evt) {
             Ok(Event::DeviceModeChange { mode }) => {
-                self.on_device_mode_change(mode)
+                self.on_device_mode_change(mode);
             },
             Ok(Event::ConectionChange { state, .. }) => {
-                self.on_connection_change(state)
+                self.on_connection_change(state);
             },
             Ok(Event::LatchStatusChange { state }) => {
-                self.on_latch_state_change(state)
+                self.on_latch_state_change(state);
             },
             Ok(Event::DetachRequest) => {
-                self.on_detach_request()
+                self.on_detach_request()?;
             },
             Ok(Event::DetachError { err }) => {
-                self.on_detach_error(err)
+                self.on_detach_error(err);
             },
             Err(evt) => {
                 warn!(self.log, "unhandled event"; "code" => evt.code, "data" => ?evt.data);
-                Ok(())
             },
         }
-    }
 
-
-    fn on_device_mode_change(&mut self, mode: DeviceMode) -> Result<()> {
-        debug!(self.log, "device mode changed"; "mode" => ?mode);
-        self.service.set_device_mode(mode);
         Ok(())
     }
 
-    fn on_latch_state_change(&mut self, state: LatchStatus) -> Result<()> {
+    fn on_device_mode_change(&mut self, mode: DeviceMode) {
+        debug!(self.log, "device mode changed"; "mode" => ?mode);
+        self.service.set_device_mode(mode);
+    }
+
+    fn on_latch_state_change(&mut self, state: LatchStatus) {
         debug!(self.log, "latch-state changed"; "state" => ?state);
 
         if state == LatchStatus::Open {
             self.service.signal_detach_state_change(DetachState::DetachReady)
         }
-
-        Ok(())
     }
 
-    fn on_connection_change(&mut self, connection: ConnectionState) -> Result<()> {
+    fn on_connection_change(&mut self, connection: ConnectionState) {
         debug!(self.log, "clipboard connection changed"; "state" => ?connection);
 
         let state = *self.state.lock().unwrap();
@@ -278,23 +274,19 @@ impl EventHandler {
                 *self.state.lock().unwrap() = State::Normal;
                 self.service.signal_detach_state_change(DetachState::DetachCompleted);
                 debug!(self.log, "detachment procedure completed");
-                Ok(())
             },
             (State::Normal, ConnectionState::Connected) => {
                 { *self.state.lock().unwrap() = State::Attaching; }
-                self.schedule_task_attach()
+                self.schedule_task_attach();
             },
             (_, ConnectionState::NotFeasible) => {
                 info!(self.log, "connection changed to not feasible";
                       "state" => ?(state, connection));
 
                 // TODO: what to do here?
-
-                Ok(())
             },
             _ => {
                 error!(self.log, "invalid state"; "state" => ?(state, connection));
-                Ok(())
             },
         }
     }
@@ -310,22 +302,24 @@ impl EventHandler {
             State::Normal => {
                 debug!(self.log, "clipboard detach requested");
                 *self.state.lock().unwrap() = State::Detaching;
-                self.schedule_task_detach()
+                self.schedule_task_detach();
             },
             State::Detaching => {
                 debug!(self.log, "clipboard detach-abort requested");
                 *self.state.lock().unwrap() = State::Aborting;
                 self.service.signal_detach_state_change(DetachState::DetachAborted);
-                self.schedule_task_detach_abort()
+                self.schedule_task_detach_abort();
             },
             State::Aborting | State::Attaching => {
                 self.ignore_request += 1;
-                self.device.commands().latch_request()
+                self.device.commands().latch_request()?;
             },
         }
+
+        Ok(())
     }
 
-    fn on_detach_error(&mut self, err: DetachError) -> Result<()> {
+    fn on_detach_error(&mut self, err: DetachError) {
         match err {
             DetachError::RtError(e) => info!(self.log, "detachment procedure canceled: {:?}", e),
             DetachError::HwError(e) => warn!(self.log, "hardware failure, aborting detahment: {:?}", e),
@@ -334,13 +328,11 @@ impl EventHandler {
 
         if *self.state.lock().unwrap() == State::Detaching {
             *self.state.lock().unwrap() = State::Aborting;
-            self.schedule_task_detach_abort()
-        } else {
-            Ok(())
+            self.schedule_task_detach_abort();
         }
     }
 
-    fn schedule_task_attach(&mut self) -> Result<()> {
+    fn schedule_task_attach(&mut self) {
         let log = self.log.clone();
         let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
         let handler = self.config.handler.attach.clone();
@@ -373,10 +365,10 @@ impl EventHandler {
             Ok(())
         };
 
-        self.schedule_process_task(Box::pin(task))
+        self.schedule_process_task(Box::pin(task));
     }
 
-    fn schedule_task_detach(&mut self) -> Result<()> {
+    fn schedule_task_detach(&mut self) {
         let log = self.log.clone();
         let handler = self.config.handler.detach.clone();
         let dir = self.config.dir.clone();
@@ -423,10 +415,10 @@ impl EventHandler {
             Ok(())
         };
 
-        self.schedule_process_task(Box::pin(task))
+        self.schedule_process_task(Box::pin(task));
     }
 
-    fn schedule_task_detach_abort(&mut self) -> Result<()> {
+    fn schedule_task_detach_abort(&mut self) {
         let log = self.log.clone();
         let handler = self.config.handler.detach_abort.clone();
         let dir = self.config.dir.clone();
@@ -452,10 +444,10 @@ impl EventHandler {
             Ok(())
         };
 
-        self.schedule_process_task(Box::pin(task))
+        self.schedule_process_task(Box::pin(task));
     }
 
-    fn schedule_process_task(&mut self, task: BoxedTask) -> Result<()> {
+    fn schedule_process_task(&mut self, task: BoxedTask) {
         use tokio::sync::mpsc::error::TrySendError;
 
         match self.task_queue_tx.try_send(task) {
@@ -467,8 +459,6 @@ impl EventHandler {
             },
             Ok(_) => {},
         }
-
-        Ok(())
     }
 }
 
