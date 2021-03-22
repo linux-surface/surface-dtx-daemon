@@ -6,17 +6,18 @@ mod cli;
 mod config;
 use config::Config;
 
-mod device;
-use device::{ConnectionState, Device, Event, LatchStatus, DeviceMode, RawEvent, DetachError};
-
 mod service;
 use service::{DetachState, Service};
 
 use std::convert::TryFrom;
+use std::ffi::OsStr;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+use std::os::unix::ffi::OsStrExt;
+
+use sdtx::Event;
+use sdtx::event::{BaseState, CancelReason, DeviceMode, LatchStatus};
 
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
@@ -32,6 +33,10 @@ use dbus_crossroads::Crossroads;
 use futures::prelude::*;
 
 use slog::{crit, debug, error, info, o, trace, warn, Logger};
+
+
+type ControlDevice = sdtx::Device<std::fs::File>;
+type EventDevice = sdtx_tokio::Device;
 
 
 fn logger(config: &Config) -> Logger {
@@ -62,7 +67,12 @@ async fn main() -> CliResult {
     };
 
     let logger = logger(&config);
-    let device: Arc<_> = Device::open().await?.into();
+
+    let event_device = sdtx_tokio::connect().await
+        .context(ErrorKind::DeviceAccess)?;
+
+    let control_device = Arc::new(sdtx::connect()
+        .context(ErrorKind::DeviceAccess)?);
 
     // set-up task-queue for external processes
     let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(32);
@@ -72,7 +82,7 @@ async fn main() -> CliResult {
         .context(ErrorKind::DBusService)?;
 
     let mut dbus_cr = Crossroads::new();
-    let serv = service::build(logger.clone(), &mut dbus_cr, dbus_conn.clone(), device.clone())?;
+    let serv = service::build(logger.clone(), &mut dbus_cr, dbus_conn.clone(), control_device.clone())?;
 
     dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
         dbus_cr.handle_message(msg, conn).unwrap();
@@ -80,7 +90,7 @@ async fn main() -> CliResult {
     }));
 
     // event handler
-    let event_task = event_task(logger.clone(), config, serv.clone(), device.clone(), queue_tx);
+    let event_task = event_task(logger.clone(), config, serv.clone(), event_device, control_device.clone(), queue_tx);
 
     // This implementation is structured around two main tasks: process_task
     // and main_task. main_task drives all processing, while process_task is
@@ -97,7 +107,10 @@ async fn main() -> CliResult {
             .context(ErrorKind::DBusService)?;
 
         // make sure the device-mode in the service is up to date
-        serv.set_device_mode(device.commands().get_device_mode()?);
+        let mode = control_device.get_device_mode()
+            .context(ErrorKind::DeviceIo)?;
+
+        serv.set_device_mode(mode);
 
         process_task(queue_rx).await
     };
@@ -171,13 +184,18 @@ where
 }
 
 async fn event_task(log: Logger, config: Config, service: Arc<Service>,
-        device: Arc<Device>, task_queue_tx: Sender<BoxedTask>) -> Result<()>
+        mut event_device: EventDevice, control_device: Arc<ControlDevice>, task_queue_tx: Sender<BoxedTask>)
+    -> Result<()>
 {
-    let mut events = device.events().await?.map_err(Error::from);
-    let mut handler = EventHandler::new(log, config, service, device, task_queue_tx);
+    let mut events = event_device.events_async()
+        .context(ErrorKind::DeviceIo)?;
+
+    let mut handler = EventHandler::new(log, config, service, control_device, task_queue_tx);
 
     while let Some(evt) = events.next().await {
-        handler.handle(evt?)?;
+        let evt = evt.context(ErrorKind::DeviceIo)?;
+
+        handler.handle(evt)?;
     }
 
     Ok(())
@@ -201,14 +219,14 @@ struct EventHandler {
     log: Logger,
     config: Config,
     service: Arc<Service>,
-    device: Arc<Device>,
+    device: Arc<ControlDevice>,
     state: Arc<Mutex<State>>,
     task_queue_tx: Sender<BoxedTask>,
     ignore_request: u32,
 }
 
 impl EventHandler {
-    fn new(log: Logger, config: Config, service: Arc<Service>, device: Arc<Device>,
+    fn new(log: Logger, config: Config, service: Arc<Service>, device: Arc<ControlDevice>,
            task_queue_tx: Sender<BoxedTask>)
         -> Self
     {
@@ -225,27 +243,27 @@ impl EventHandler {
         }
     }
 
-    fn handle(&mut self, evt: RawEvent) -> Result<()> {
+    fn handle(&mut self, evt: Event) -> Result<()> {
         trace!(self.log, "received event"; "event" => ?evt);
 
-        match Event::try_from(evt) {
-            Ok(Event::DeviceModeChange { mode }) => {
+        match evt {
+            Event::DeviceMode { mode } => {
                 self.on_device_mode_change(mode);
             },
-            Ok(Event::ConectionChange { state, .. }) => {
+            Event::BaseConnection { state, .. } => {
                 self.on_connection_change(state);
             },
-            Ok(Event::LatchStatusChange { state }) => {
-                self.on_latch_state_change(state);
+            Event::LatchStatus { status } => {
+                self.on_latch_state_change(status);
             },
-            Ok(Event::DetachRequest) => {
+            Event::Request => {
                 self.on_detach_request()?;
             },
-            Ok(Event::DetachError { err }) => {
-                self.on_detach_error(err);
+            Event::Cancel { reason } => {
+                self.on_detach_error(reason);
             },
-            Err(evt) => {
-                warn!(self.log, "unhandled event"; "code" => evt.code, "data" => ?evt.data);
+            Event::Unknown { code, data } => {
+                warn!(self.log, "unhandled event"; "code" => code, "data" => ?data);
             },
         }
 
@@ -254,39 +272,55 @@ impl EventHandler {
 
     fn on_device_mode_change(&mut self, mode: DeviceMode) {
         debug!(self.log, "device mode changed"; "mode" => ?mode);
+
+        if let DeviceMode::Unknown(mode) = mode {
+            error!(self.log, "unknown device mode"; "mode" => mode);
+            return;
+        }
+
+        let mode = sdtx::DeviceMode::try_from(mode).unwrap();
         self.service.set_device_mode(mode);
     }
 
-    fn on_latch_state_change(&mut self, state: LatchStatus) {
-        debug!(self.log, "latch-state changed"; "state" => ?state);
+    fn on_latch_state_change(&mut self, status: LatchStatus) {
+        debug!(self.log, "latch-state changed"; "status" => ?status);
 
-        if state == LatchStatus::Open {
-            self.service.signal_detach_state_change(DetachState::DetachReady)
+        match status {
+            LatchStatus::Opened => {
+                self.service.signal_detach_state_change(DetachState::DetachReady)
+            },
+            LatchStatus::Closed => {},
+            LatchStatus::Error(e) => {
+                warn!(self.log, "latch status error"; "error" => ?e);
+            },
+            LatchStatus::Unknown(x) => {
+                error!(self.log, "unknown latch status"; "status" => x);
+            },
         }
     }
 
-    fn on_connection_change(&mut self, connection: ConnectionState) {
-        debug!(self.log, "clipboard connection changed"; "state" => ?connection);
+    fn on_connection_change(&mut self, base_state: BaseState) {
+        debug!(self.log, "clipboard connection changed"; "state" => ?base_state);
 
         let state = *self.state.lock().unwrap();
-        match (state, connection) {
-            (State::Detaching, ConnectionState::Disconnected) => {
+        match (state, base_state) {
+            (State::Detaching, BaseState::Detached) => {
                 *self.state.lock().unwrap() = State::Normal;
                 self.service.signal_detach_state_change(DetachState::DetachCompleted);
                 debug!(self.log, "detachment procedure completed");
             },
-            (State::Normal, ConnectionState::Connected) => {
+            (State::Normal, BaseState::Attached) => {
                 { *self.state.lock().unwrap() = State::Attaching; }
                 self.schedule_task_attach();
             },
-            (_, ConnectionState::NotFeasible) => {
+            (_, BaseState::NotFeasible) => {
                 info!(self.log, "connection changed to not feasible";
-                      "state" => ?(state, connection));
+                      "state" => ?(state, base_state));
 
                 // TODO: what to do here?
             },
             _ => {
-                error!(self.log, "invalid state"; "state" => ?(state, connection));
+                error!(self.log, "invalid state"; "state" => ?(state, base_state));
             },
         }
     }
@@ -312,18 +346,18 @@ impl EventHandler {
             },
             State::Aborting | State::Attaching => {
                 self.ignore_request += 1;
-                self.device.commands().latch_request()?;
+                self.device.latch_request().context(ErrorKind::DeviceIo)?;
             },
         }
 
         Ok(())
     }
 
-    fn on_detach_error(&mut self, err: DetachError) {
+    fn on_detach_error(&mut self, err: CancelReason) {
         match err {
-            DetachError::RtError(e) => info!(self.log, "detachment procedure canceled: {:?}", e),
-            DetachError::HwError(e) => warn!(self.log, "hardware failure, aborting detahment: {:?}", e),
-            DetachError::Unknown(x) => error!(self.log, "unknown failure, aborting detahment: {}", x),
+            CancelReason::Runtime(e)  => info!(self.log, "detachment procedure canceled: {}", e),
+            CancelReason::Hardware(e) => warn!(self.log, "hardware failure, aborting detachment: {}", e),
+            CancelReason::Unknown(x)  => error!(self.log, "unknown failure, aborting detachment: {}", x),
         }
 
         if *self.state.lock().unwrap() == State::Detaching {
@@ -392,10 +426,10 @@ impl EventHandler {
                 if *state.lock().unwrap() == State::Detaching {
                     if output.status.success() {
                         debug!(log, "commencing detach, opening latch");
-                        device.commands().latch_confirm()?;
+                        device.latch_confirm().context(ErrorKind::DeviceIo)?;
                     } else {
                         info!(log, "aborting detach");
-                        device.commands().latch_cancel()?;
+                        device.latch_cancel().context(ErrorKind::DeviceIo)?;
                     }
                 } else {
                     debug!(log, "state changed during detachment, not opening latch");
@@ -406,7 +440,7 @@ impl EventHandler {
 
                 if *state.lock().unwrap() == State::Detaching {
                     debug!(log, "commencing detach, opening latch");
-                    device.commands().latch_confirm()?;
+                    device.latch_confirm().context(ErrorKind::DeviceIo)?;
                 } else {
                     debug!(log, "state changed during detachment, not opening latch");
                 }

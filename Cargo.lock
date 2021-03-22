@@ -497,6 +497,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb5d2a036dc6d2d8fd16fde3498b04306e29bd193bf306a57427019b823d5acd"
 
 [[package]]
+name = "sdtx"
+version = "0.1.0"
+source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.0#6b5906ee4f7a7ec73844a3a23df21f8c2e0926c3"
+dependencies = [
+ "futures",
+ "nix",
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
+name = "sdtx-tokio"
+version = "0.1.0"
+source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.0#6b5906ee4f7a7ec73844a3a23df21f8c2e0926c3"
+dependencies = [
+ "futures",
+ "sdtx",
+ "tokio",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.124"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -585,10 +606,11 @@ dependencies = [
  "futures",
  "libc",
  "nix",
+ "sdtx",
+ "sdtx-tokio",
  "serde",
  "slog",
  "slog-term",
- "smallvec",
  "tokio",
  "toml",
 ]
@@ -650,6 +672,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 dependencies = [
  "unicode-width",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0f4a65597094d4483ddaed134f409b2cb7c1beccf25201a9f73c719254fa98e"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7765189610d8241a44529806d6fd1f2e0a08734313a35d5b3a556f92b381f3c0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

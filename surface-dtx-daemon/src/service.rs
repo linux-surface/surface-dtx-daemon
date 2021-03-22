@@ -1,10 +1,11 @@
-use crate::error::Result;
-use crate::device::{Device, DeviceMode};
+use crate::{ControlDevice, error::Result};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use slog::{debug, Logger};
+
+use sdtx::DeviceMode;
 
 use dbus::Message;
 use dbus::channel::Sender;
@@ -45,8 +46,7 @@ impl Service {
             std::mem::replace(&mut *mode, new)
         };
 
-        debug!(self.log, "service: changing device mode";
-              "old" => old.as_str(), "new" => new.as_str());
+        debug!(self.log, "service: changing device mode"; "old" => %old, "new" => %new);
 
         // signal property changed
         if old != new {
@@ -56,7 +56,7 @@ impl Service {
             use dbffi::PropertiesPropertiesChanged as PropertiesChanged;
 
             let mut changed: HashMap<String, Variant<Box<dyn RefArg>>> = HashMap::new();
-            changed.insert("DeviceMode".into(), Variant(Box::new(new.as_str().to_owned())));
+            changed.insert("DeviceMode".into(), Variant(Box::new(format!("{}", new).to_lowercase())));
 
             let changed = PropertiesChanged {
                 interface_name: "org.surface.dtx".into(),
@@ -82,7 +82,7 @@ impl Service {
 }
 
 
-pub fn build(log: Logger, cr: &mut Crossroads, c: Arc<SyncConnection>, device: Arc<Device>)
+pub fn build(log: Logger, cr: &mut Crossroads, c: Arc<SyncConnection>, device: Arc<ControlDevice>)
         -> Result<Arc<Service>>
 {
     let service = Arc::new(Service {
@@ -99,11 +99,11 @@ pub fn build(log: Logger, cr: &mut Crossroads, c: Arc<SyncConnection>, device: A
         // device-mode property
         b.property("DeviceMode")
             .emits_changed_true()
-            .get(|_, service| { Ok(service.mode.lock().unwrap().as_str().to_owned()) });
+            .get(|_, service| { Ok(format!("{}", service.mode.lock().unwrap()).to_lowercase()) });
 
         // request method
         b.method("Request", (), (), move |_, _, _: ()| {
-            match device.commands().latch_request() {
+            match device.latch_request() {
                 Ok(()) => { Ok(()) },
                 Err(e) => { Err(MethodErr::failed(&e)) },
             }
