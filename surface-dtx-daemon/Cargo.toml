@@ -17,11 +17,11 @@ dbus-tokio = "0.7.3"
 dbus-crossroads = "0.3.0"
 failure = "0.1.8"
 futures = "0.3.13"
-libc = "0.2.90"
+libc = "0.2.91"
 nix = "0.20.0"
 sdtx = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.0" }
 sdtx-tokio = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.0" }
-serde = { version = "1.0.124", features = ['derive'] }
+serde = { version = "1.0.125", features = ['derive'] }
 slog = { version = "2.7.0", features = ['release_max_level_debug'] }
 slog-term = "2.8.0"
 tokio = { version = "1.4.0", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
