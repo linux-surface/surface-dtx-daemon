@@ -27,6 +27,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.39"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81cddc5f91628367664cc7c69714ff08deee8a3efc54623011c772544d7b2767"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,10 +613,10 @@ dependencies = [
 name = "surface-dtx-userd"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "clap",
  "dbus",
  "dbus-tokio",
- "failure",
  "futures",
  "serde",
  "slog",

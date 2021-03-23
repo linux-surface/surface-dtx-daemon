@@ -1,5 +1,3 @@
-use crate::error::{ErrorKind, Result, ResultExt};
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -98,7 +96,7 @@ impl<'a> Notification<'a> {
         }
     }
 
-    pub async fn show(self, conn: &SyncConnection) -> Result<NotificationHandle> {
+    pub async fn show(self, conn: &SyncConnection) -> Result<NotificationHandle, dbus::Error> {
         let proxy = Proxy::new(
             "org.freedesktop.Notifications",
             "/org/freedesktop/Notifications",
@@ -121,8 +119,7 @@ impl<'a> Notification<'a> {
                     self.expires,
                 ),
             )
-            .await
-            .context(ErrorKind::DBus)?;
+            .await?;
 
         Ok(NotificationHandle { id })
     }
@@ -130,7 +127,7 @@ impl<'a> Notification<'a> {
 
 
 impl NotificationHandle {
-    pub async fn close(self, conn: &SyncConnection) -> Result<()> {
+    pub async fn close(self, conn: &SyncConnection) -> Result<(), dbus::Error> {
         let proxy = Proxy::new(
             "org.freedesktop.Notifications",
             "/org/freedesktop/Notifications",
@@ -144,8 +141,7 @@ impl NotificationHandle {
                 "CloseNotification",
                 (self.id,),
             )
-            .await
-            .context(ErrorKind::DBus)?;
+            .await?;
 
         Ok(())
     }

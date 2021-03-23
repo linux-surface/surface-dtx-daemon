@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use crate::error::{ErrorKind, Result, ResultExt};
 
 
 const SYSTEM_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-userd.conf";
@@ -55,12 +55,16 @@ impl Config {
         use std::io::Read;
 
         let mut buf = Vec::new();
-        let mut file = std::fs::File::open(path.as_ref()).context(ErrorKind::Config)?;
-        file.read_to_end(&mut buf).context(ErrorKind::Config)?;
+        let mut file = std::fs::File::open(path.as_ref())
+            .context("Failed to open config file")?;
 
-        let mut config: Config = toml::from_slice(&buf).context(ErrorKind::Config)?;
+        file.read_to_end(&mut buf)
+            .with_context(|| format!("Failed to read config file (path: {:?})", path.as_ref()))?;
+
+        let mut config: Config = toml::from_slice(&buf)
+            .with_context(|| format!("Failed to read config file (path: {:?})", path.as_ref()))?;
+
         config.dir = path.as_ref().parent().unwrap().into();
-
         Ok(config)
     }
 }

@@ -1,6 +1,3 @@
-mod error;
-use error::{CliResult, Error, ErrorKind, Result, ResultExt};
-
 mod cli;
 
 mod config;
@@ -11,6 +8,8 @@ use notify::{Notification, NotificationHandle, Timeout};
 
 use std::cell::Cell;
 use std::sync::Arc;
+
+use anyhow::{Context, Error, Result};
 
 use slog::{crit, debug, o, Logger};
 
@@ -40,7 +39,7 @@ fn logger(config: &Config) -> Logger {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> CliResult {
+async fn main() -> Result<()> {
     let matches = cli::app().get_matches();
 
     let config = match matches.value_of("config") {
@@ -51,16 +50,16 @@ async fn main() -> CliResult {
     let logger = logger(&config);
 
     let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
-        .context(ErrorKind::DBus)?;
+        .context("Failed to connect to D-Bus (system)")?;
 
     let (ses_rsrc, ses_conn) = connection::new::<SyncConnection>(BusType::Session)
-        .context(ErrorKind::DBus)?;
+        .context("Failed to connect to D-Bus (user)")?;
 
     let log = logger.clone();
     tokio::spawn(async move {
         let err = sys_rsrc.await;
 
-        crit!(log, "Error: DBus error: {}", err);
+        crit!(log, "Error: D-Bus error"; "type" => "system", "error" => %err);
         std::process::exit(1);
     });
 
@@ -68,7 +67,7 @@ async fn main() -> CliResult {
     tokio::spawn(async move {
         let err = ses_rsrc.await;
 
-        crit!(log, "Error: DBus error: {}", err);
+        crit!(log, "Error: D-Bus error"; "type" => "user", "error" => %err);
         std::process::exit(1);
     });
 
@@ -76,7 +75,7 @@ async fn main() -> CliResult {
     let (_msgs, stream) = sys_conn
         .add_match(mr)
         .await
-        .context(ErrorKind::DBus)?
+        .context("Failed to set up D-Bus connection")?
         .msg_stream();
 
     let log = logger.clone();
@@ -112,7 +111,9 @@ impl MessageHandler {
     }
 
     async fn handle(&self, mut message: Message) -> Result<()> {
-        let m = message.as_result().context(ErrorKind::DBus)?;
+        let m = message.as_result()
+            .context("D-Bus remote error")?;
+
         debug!(self.log, "message received"; "message" => ?m);
 
         if m.interface() != Some("org.surface.dtx".into()) {
@@ -123,7 +124,9 @@ impl MessageHandler {
             return Ok(());
         }
 
-        let state: &str = m.read1().context(ErrorKind::DBus)?;
+        let state: &str = m.read1()
+            .context("Protocol error")?;
+
         debug!(self.log, "detach-state changed"; "value" => state);
 
         match state {
@@ -137,9 +140,8 @@ impl MessageHandler {
                 self.notify_attach_completed().await
             },
             _ => {
-                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid detach-state"))
-                    .context(ErrorKind::DBus)
-                    .map_err(Into::into)
+                Err(anyhow::anyhow!("Invalid detachment state: {}", state)
+                    .context("Protocol error"))
             },
         }
     }
@@ -154,7 +156,9 @@ impl MessageHandler {
         notif.add_hint_b("resident", true);
         notif.set_expires(Timeout::Never);
 
-        let handle = notif.show(&self.connection).await?;
+        let handle = notif.show(&self.connection).await
+            .context("Failed to display notification")?;
+
         debug!(self.log, "added notification {}", handle.id);
 
         self.detach_notif.set(Some(handle));
@@ -166,7 +170,9 @@ impl MessageHandler {
 
         if let Some(notif) = notif {
             debug!(self.log, "closing notification {}", notif.id);
-            notif.close(&self.connection).await?;
+
+            notif.close(&self.connection).await
+                .context("Failed to close notification")?;
         }
 
         Ok(())
@@ -180,16 +186,18 @@ impl MessageHandler {
         notif.add_hint_s("category", "device");
         notif.add_hint_b("transient", true);
 
-        notif.show(&self.connection).await?;
+        notif.show(&self.connection).await
+            .context("Failed to display notification")?;
+
         Ok(())
     }
 }
 
 fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {
     crit!(log, "Error: {}", err);
-    for cause in err.iter_causes() {
+    for cause in err.chain().skip(1) {
         crit!(log, "Caused by: {}", cause);
     }
 
-    panic!("{}", err)
+    panic!("{:?}", err)
 }
