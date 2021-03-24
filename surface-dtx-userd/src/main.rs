@@ -48,15 +48,19 @@ fn logger(config: &Config) -> Logger {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    // handle command line input
     let matches = cli::app().get_matches();
 
+    // set up config
     let config = match matches.value_of("config") {
         Some(path) => Config::load_file(path)?,
         None       => Config::load()?,
     };
 
+    // set up logger
     let logger = logger(&config);
 
+    // set up and start D-Bus connections (system and user)
     let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
         .context("Failed to connect to D-Bus (system)")?;
 
@@ -79,6 +83,7 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     });
 
+    // set up signal handling for shutdown
     let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
     let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
 
@@ -106,6 +111,7 @@ async fn main() -> Result<()> {
         Msg::Exit
     }.into_stream().boxed();
 
+    // set up D-Bus message listener
     let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
     let (_msgs, stream) = sys_conn
         .add_match(mr).await
@@ -113,6 +119,8 @@ async fn main() -> Result<()> {
         .msg_stream();
 
     let stream = stream.map(Msg::Msg);
+
+    // main message handler loop
     let mut stream = futures::stream::select(stream, sig);
 
     let handler = MessageHandler::new(logger.clone(), ses_conn);
