@@ -11,8 +11,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
-use slog::{crit, debug, o, Logger};
-
 use dbus::Message;
 use dbus::channel::BusType;
 use dbus::message::MatchRule;
@@ -20,6 +18,16 @@ use dbus::nonblock::SyncConnection;
 use dbus_tokio::connection;
 
 use futures::prelude::*;
+
+use slog::{Logger, crit, debug, info, o};
+
+use tokio::signal::unix::{SignalKind, signal};
+
+
+enum Msg {
+    Msg(Message),
+    Exit,
+}
 
 
 fn logger(config: &Config) -> Logger {
@@ -71,14 +79,44 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     });
 
+    let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
+    let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
+
+    let log = logger.clone();
+    let sig = async move {
+        // wait for first signal
+        let cause = tokio::select! {
+            _ = sigint.recv()  => "SIGINT",
+            _ = sigterm.recv() => "SIGTERM",
+        };
+
+        info!(log, "received {}, shutting down...", cause);
+
+        // force termination on second signal
+        tokio::spawn(async move {
+            let (cause, tval) = tokio::select! {
+                _ = sigint.recv()  => ("SIGINT",   2),   // = value of SIGINT
+                _ = sigterm.recv() => ("SIGTERM", 15),   // = value of SIGTERM
+            };
+
+            info!(log, "received {}, terminating...", cause);
+            std::process::exit(128 + tval)
+        });
+
+        Msg::Exit
+    }.into_stream().boxed();
+
     let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
-    let (_msgs, mut stream) = sys_conn
+    let (_msgs, stream) = sys_conn
         .add_match(mr).await
         .context("Failed to set up D-Bus connection")?
         .msg_stream();
 
+    let stream = stream.map(Msg::Msg);
+    let mut stream = futures::stream::select(stream, sig);
+
     let handler = MessageHandler::new(logger.clone(), ses_conn);
-    while let Some(m) = stream.next().await {
+    while let Some(Msg::Msg(m)) = stream.next().await {
         handler.handle(m).await?;
     }
 

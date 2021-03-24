@@ -19,7 +19,7 @@ futures = "0.3.13"
 serde = { version = "1.0.125", features = ["derive"] }
 slog = { version = "2.7.0", features = ["release_max_level_debug"] }
 slog-term = "2.8.0"
-tokio = { version = "1.4.0", features = ["macros", "rt"] }
+tokio = { version = "1.4.0", features = ["macros", "rt", "signal"] }
 toml = "0.5.8"
 
 [build-dependencies]
