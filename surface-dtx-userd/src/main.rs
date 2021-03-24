@@ -9,7 +9,7 @@ use notify::{Notification, NotificationHandle, Timeout};
 use std::cell::Cell;
 use std::sync::Arc;
 
-use anyhow::{Context, Error, Result};
+use anyhow::{Context, Result};
 
 use slog::{crit, debug, o, Logger};
 
@@ -79,9 +79,7 @@ async fn main() -> Result<()> {
 
     let handler = MessageHandler::new(logger.clone(), ses_conn);
     while let Some(m) = stream.next().await {
-        if let Err(err) = handler.handle(m).await {
-            panic_with_critical_error(&logger, &err);
-        }
+        handler.handle(m).await?;
     }
 
     Ok(())
@@ -184,13 +182,4 @@ impl MessageHandler {
 
         Ok(())
     }
-}
-
-fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {
-    crit!(log, "Error: {}", err);
-    for cause in err.chain().skip(1) {
-        crit!(log, "Caused by: {}", cause);
-    }
-
-    panic!("{:?}", err)
 }
