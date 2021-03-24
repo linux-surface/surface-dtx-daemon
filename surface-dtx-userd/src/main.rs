@@ -72,25 +72,19 @@ async fn main() -> Result<()> {
     });
 
     let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
-    let (_msgs, stream) = sys_conn
+    let (_msgs, mut stream) = sys_conn
         .add_match(mr)
         .await
         .context("Failed to set up D-Bus connection")?
         .msg_stream();
 
-    let log = logger.clone();
-    let handler = MessageHandler::new(logger, ses_conn);
-    let stream = stream.for_each(move |m| {
-        let log = log.clone();
-        let handler = handler.clone();
-        async move {
-            if let Err(err) = handler.handle(m).await {
-                panic_with_critical_error(&log, &err);
-            }
+    let handler = MessageHandler::new(logger.clone(), ses_conn);
+    while let Some(m) = stream.next().await {
+        if let Err(err) = handler.handle(m).await {
+            panic_with_critical_error(&logger, &err);
         }
-    });
+    }
 
-    stream.await;
     Ok(())
 }
 
