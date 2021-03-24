@@ -73,8 +73,7 @@ async fn main() -> Result<()> {
 
     let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
     let (_msgs, mut stream) = sys_conn
-        .add_match(mr)
-        .await
+        .add_match(mr).await
         .context("Failed to set up D-Bus connection")?
         .msg_stream();
 
