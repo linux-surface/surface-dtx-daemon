@@ -152,8 +152,8 @@ impl MessageHandler {
         notif.set_body("Clipboard can be detached.");
         notif.add_hint_s("image-path", "input-tablet");
         notif.add_hint_s("category", "device");
-        notif.add_hint_u8("urgency", 2);
-        notif.add_hint_b("resident", true);
+        notif.add_hint("urgency", 2);
+        notif.add_hint("resident", true);
         notif.set_expires(Timeout::Never);
 
         let handle = notif.show(&self.connection).await
@@ -184,7 +184,7 @@ impl MessageHandler {
         notif.set_body("Clipboard attached.");
         notif.add_hint_s("image-path", "input-tablet");
         notif.add_hint_s("category", "device");
-        notif.add_hint_b("transient", true);
+        notif.add_hint("transient", true);
 
         notif.show(&self.connection).await
             .context("Failed to display notification")?;

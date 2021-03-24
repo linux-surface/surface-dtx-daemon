@@ -74,16 +74,10 @@ impl<'a> Notification<'a> {
         self.hints.insert(key.into(), Variant(Box::new(value) as Box<dyn RefArg>));
     }
 
-    pub fn add_hint_b<K>(&mut self, key: K, value: bool)
+    pub fn add_hint<K, V>(&mut self, key: K, value: V)
     where
         K: Into<String>,
-    {
-        self.hints.insert(key.into(), Variant(Box::new(value) as Box<dyn RefArg>));
-    }
-
-    pub fn add_hint_u8<K>(&mut self, key: K, value: u8)
-    where
-        K: Into<String>,
+        V: RefArg + 'static,
     {
         self.hints.insert(key.into(), Variant(Box::new(value) as Box<dyn RefArg>));
     }
