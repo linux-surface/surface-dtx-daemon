@@ -20,6 +20,11 @@ pub struct Notification<'a> {
     expires:  i32,
 }
 
+#[derive(Debug)]
+pub struct NotificationBuilder<'a> {
+    notif: Notification<'a>,
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct NotificationHandle {
     pub id: u32,
@@ -35,6 +40,10 @@ pub enum Timeout {
 
 
 impl<'a> Notification<'a> {
+    pub fn create<S: Into<Cow<'a, str>>>(app_name: S) -> NotificationBuilder<'a> {
+        NotificationBuilder { notif: Notification::new(app_name) }
+    }
+
     pub fn new<S: Into<Cow<'a, str>>>(app_name: S) -> Self {
         Notification {
             app_name: app_name.into(),
@@ -115,6 +124,56 @@ impl<'a> Notification<'a> {
             .await?;
 
         Ok(NotificationHandle { id })
+    }
+}
+
+
+impl<'a> NotificationBuilder<'a> {
+    pub fn build(self) -> Notification<'a> {
+        self.notif
+    }
+
+    pub fn replaces(mut self, id: u32) -> Self {
+        self.notif.set_replaces(id);
+        self
+    }
+
+    pub fn icon<S: Into<Cow<'a, str>>>(mut self, icon: S) -> Self {
+        self.notif.set_icon(icon);
+        self
+    }
+
+    pub fn summary<S: Into<Cow<'a, str>>>(mut self, summary: S) -> Self {
+        self.notif.set_summary(summary);
+        self
+    }
+
+    pub fn body<S: Into<Cow<'a, str>>>(mut self, body: S) -> Self {
+        self.notif.set_body(body);
+        self
+    }
+
+    pub fn hint_s<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<Cow<'a, str>>,
+    {
+        self.notif.add_hint_s(key, value);
+        self
+    }
+
+    pub fn hint<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: RefArg + 'static,
+    {
+        self.notif.add_hint(key, value);
+        self
+    }
+
+    pub fn expires(mut self, timeout: Timeout) -> Self {
+        self.notif.set_expires(timeout);
+        self
     }
 }
 

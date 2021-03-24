@@ -147,16 +147,16 @@ impl MessageHandler {
     }
 
     async fn notify_detach_ready(&self) -> Result<()> {
-        let mut notif = Notification::new("Surface DTX");
-        notif.set_summary("Surface DTX");
-        notif.set_body("Clipboard can be detached.");
-        notif.add_hint_s("image-path", "input-tablet");
-        notif.add_hint_s("category", "device");
-        notif.add_hint("urgency", 2);
-        notif.add_hint("resident", true);
-        notif.set_expires(Timeout::Never);
-
-        let handle = notif.show(&self.connection).await
+        let handle = Notification::create("Surface DTX")
+            .summary("Surface DTX")
+            .body("Clipboard can be detached.")
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", "device")
+            .hint("urgency", 2)
+            .hint("resident", true)
+            .expires(Timeout::Never)
+            .build()
+            .show(&self.connection).await
             .context("Failed to display notification")?;
 
         debug!(self.log, "added notification {}", handle.id);
@@ -179,14 +179,14 @@ impl MessageHandler {
     }
 
     async fn notify_attach_completed(&self) -> Result<()> {
-        let mut notif = Notification::new("Surface DTX");
-        notif.set_summary("Surface DTX");
-        notif.set_body("Clipboard attached.");
-        notif.add_hint_s("image-path", "input-tablet");
-        notif.add_hint_s("category", "device");
-        notif.add_hint("transient", true);
-
-        notif.show(&self.connection).await
+        Notification::create("Surface DTX")
+            .summary("Surface DTX")
+            .body("Clipboard attached.")
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", "device")
+            .hint("transient", true)
+            .build()
+            .show(&self.connection).await
             .context("Failed to display notification")?;
 
         Ok(())
