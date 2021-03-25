@@ -34,7 +34,7 @@ pub async fn run(logger: Logger) -> Result<()> {
     // set up D-Bus message listener task
     let log = logger.clone();
     let mut main_task = tokio::spawn(async move {
-        let mut handler = MessageHandler::new(log, ses_conn);
+        let mut core = Core::new(log, ses_conn);
 
         let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
         let (_msgs, mut stream) = sys_conn
@@ -43,7 +43,7 @@ pub async fn run(logger: Logger) -> Result<()> {
             .msg_stream();
 
         while let Some(m) = stream.next().await {
-            handler.handle(m).await?;
+            core.handle(m).await?;
         }
 
         Ok(())
@@ -94,15 +94,15 @@ impl FromStr for Status {
 
 
 #[derive(Clone)]
-struct MessageHandler {
+struct Core {
     log:          Logger,
     session:      Arc<SyncConnection>,
     detach_notif: Option<NotificationHandle>,
 }
 
-impl MessageHandler {
+impl Core {
     fn new(log: Logger, session: Arc<SyncConnection>) -> Self {
-        MessageHandler {
+        Core {
             log,
             session,
             detach_notif: None,
