@@ -24,7 +24,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinHandle;
 
 
-fn logger(config: &Config) -> Logger {
+fn build_logger(config: &Config) -> Logger {
     use slog::Drain;
 
     let decorator = slog_term::TermDecorator::new().build();
@@ -40,8 +40,7 @@ fn logger(config: &Config) -> Logger {
     Logger::root(drain, o!())
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn bootstrap() -> Result<(Logger, Config)> {
     // handle command line input
     let matches = cli::app().get_matches();
 
@@ -52,8 +51,12 @@ async fn main() -> Result<()> {
     };
 
     // set up logger
-    let logger = logger(&config);
+    let logger = build_logger(&config);
 
+    Ok((logger, config))
+}
+
+async fn run(logger: &Logger, _config: Config) -> Result<()> {
     // set up and start D-Bus connections (system and user-session)
     let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
         .context("Failed to connect to D-Bus (system)")?;
@@ -133,6 +136,21 @@ async fn main() -> Result<()> {
         },
     }
 }
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
+    // no logger so we can't log errors here
+    let (logger, config) = bootstrap()?;
+
+    // run main function and log critical errors
+    let result = run(&logger, config).await;
+    if let Err(ref err) = result {
+        crit!(logger, "Critical error: {}\n", err);
+    }
+
+    result
+}
+
 
 #[derive(Clone)]
 struct MessageHandler {
