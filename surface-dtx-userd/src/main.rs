@@ -6,7 +6,6 @@ use config::Config;
 mod notify;
 use notify::{Notification, NotificationHandle, Timeout};
 
-use std::cell::Cell;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -22,12 +21,7 @@ use futures::prelude::*;
 use slog::{Logger, crit, debug, info, o};
 
 use tokio::signal::unix::{SignalKind, signal};
-
-
-enum Msg {
-    Msg(Message),
-    Exit,
-}
+use tokio::task::JoinHandle;
 
 
 fn logger(config: &Config) -> Logger {
@@ -60,28 +54,15 @@ async fn main() -> Result<()> {
     // set up logger
     let logger = logger(&config);
 
-    // set up and start D-Bus connections (system and user)
+    // set up and start D-Bus connections (system and user-session)
     let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
         .context("Failed to connect to D-Bus (system)")?;
 
     let (ses_rsrc, ses_conn) = connection::new::<SyncConnection>(BusType::Session)
-        .context("Failed to connect to D-Bus (user)")?;
+        .context("Failed to connect to D-Bus (session)")?;
 
-    let log = logger.clone();
-    tokio::spawn(async move {
-        let err = sys_rsrc.await;
-
-        crit!(log, "Error: D-Bus error"; "type" => "system", "error" => %err);
-        std::process::exit(1);
-    });
-
-    let log = logger.clone();
-    tokio::spawn(async move {
-        let err = ses_rsrc.await;
-
-        crit!(log, "Error: D-Bus error"; "type" => "user", "error" => %err);
-        std::process::exit(1);
-    });
+    let sys_task = tokio::spawn(sys_rsrc);
+    let ses_task = tokio::spawn(ses_rsrc);
 
     // set up signal handling for shutdown
     let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
@@ -107,35 +88,69 @@ async fn main() -> Result<()> {
             info!(log, "received {}, terminating...", cause);
             std::process::exit(128 + tval)
         });
+    };
 
-        Msg::Exit
-    }.into_stream().boxed();
+    // set up D-Bus message listener task
+    let log = logger.clone();
+    let main: JoinHandle<Result<_>> = tokio::spawn(async move {
+        let mut handler = MessageHandler::new(log, ses_conn);
 
-    // set up D-Bus message listener
-    let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
-    let (_msgs, stream) = sys_conn
-        .add_match(mr).await
-        .context("Failed to set up D-Bus connection")?
-        .msg_stream();
+        let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
+        let (_msgs, mut stream) = sys_conn
+            .add_match(mr).await
+            .context("Failed to set up D-Bus connection")?
+            .msg_stream();
 
-    let stream = stream.map(Msg::Msg);
+        while let Some(m) = stream.next().await {
+            handler.handle(m).await?;
+        }
 
-    // main message handler loop
-    let mut stream = futures::stream::select(stream, sig);
+        Ok(())
+    });
 
-    let handler = MessageHandler::new(logger.clone(), ses_conn);
-    while let Some(Msg::Msg(m)) = stream.next().await {
-        handler.handle(m).await?;
+    // wait for error or shutdown signal
+    tokio::select! {
+        _ = sig => {
+            Ok(())
+        },
+        result = main => {
+            match result {
+                Ok(r) => r,
+                Err(e) if e.is_panic() => {
+                    crit!(logger, "Main message handler task panicked");
+                    std::panic::resume_unwind(e.into_panic())
+                },
+                Err(_) => Ok(()),
+            }
+        },
+        result = sys_task => {
+            match result {
+                Ok(e) => Err(e).context("D-Bus connection error (system)"),
+                Err(e) if e.is_panic() => {
+                    crit!(logger, "D-Bus system task panicked");
+                    std::panic::resume_unwind(e.into_panic())
+                },
+                Err(_) => Ok(()),
+            }
+        },
+        result = ses_task => {
+            match result {
+                Ok(e) => Err(e).context("D-Bus connection error (session)"),
+                Err(e) if e.is_panic() => {
+                    crit!(logger, "D-Bus session task panicked");
+                    std::panic::resume_unwind(e.into_panic())
+                },
+                Err(_) => Ok(()),
+            }
+        },
     }
-
-    Ok(())
 }
 
 #[derive(Clone)]
 struct MessageHandler {
     log:          Logger,
     connection:   Arc<SyncConnection>,
-    detach_notif: Arc<Cell<Option<NotificationHandle>>>,
+    detach_notif: Option<NotificationHandle>,
 }
 
 impl MessageHandler {
@@ -143,11 +158,11 @@ impl MessageHandler {
         MessageHandler {
             log,
             connection,
-            detach_notif: Arc::new(Cell::new(None)),
+            detach_notif: None,
         }
     }
 
-    async fn handle(&self, mut message: Message) -> Result<()> {
+    async fn handle(&mut self, mut message: Message) -> Result<()> {
         let m = message.as_result()
             .context("D-Bus remote error")?;
 
@@ -183,7 +198,7 @@ impl MessageHandler {
         }
     }
 
-    async fn notify_detach_ready(&self) -> Result<()> {
+    async fn notify_detach_ready(&mut self) -> Result<()> {
         let handle = Notification::create("Surface DTX")
             .summary("Surface DTX")
             .body("Clipboard can be detached.")
@@ -198,14 +213,12 @@ impl MessageHandler {
 
         debug!(self.log, "added notification {}", handle.id);
 
-        self.detach_notif.set(Some(handle));
+        self.detach_notif = Some(handle);
         Ok(())
     }
 
-    async fn notify_detach_completed(&self) -> Result<()> {
-        let notif = self.detach_notif.replace(None);
-
-        if let Some(notif) = notif {
+    async fn notify_detach_completed(&mut self) -> Result<()> {
+        if let Some(notif) = self.detach_notif {
             debug!(self.log, "closing notification {}", notif.id);
 
             notif.close(&self.connection).await
