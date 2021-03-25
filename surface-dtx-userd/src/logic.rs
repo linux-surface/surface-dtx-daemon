@@ -72,15 +72,15 @@ pub async fn run(logger: Logger) -> Result<()> {
 #[derive(Clone)]
 struct MessageHandler {
     log:          Logger,
-    connection:   Arc<SyncConnection>,
+    session:      Arc<SyncConnection>,
     detach_notif: Option<NotificationHandle>,
 }
 
 impl MessageHandler {
-    fn new(log: Logger, connection: Arc<SyncConnection>) -> Self {
+    fn new(log: Logger, session: Arc<SyncConnection>) -> Self {
         MessageHandler {
             log,
-            connection,
+            session,
             detach_notif: None,
         }
     }
@@ -131,7 +131,7 @@ impl MessageHandler {
             .hint("resident", true)
             .expires(Timeout::Never)
             .build()
-            .show(&self.connection).await
+            .show(&self.session).await
             .context("Failed to display notification")?;
 
         debug!(self.log, "added notification {}", handle.id);
@@ -144,7 +144,7 @@ impl MessageHandler {
         if let Some(notif) = self.detach_notif {
             debug!(self.log, "closing notification {}", notif.id);
 
-            notif.close(&self.connection).await
+            notif.close(&self.session).await
                 .context("Failed to close notification")?;
         }
 
@@ -159,7 +159,7 @@ impl MessageHandler {
             .hint_s("category", "device")
             .hint("transient", true)
             .build()
-            .show(&self.connection).await
+            .show(&self.session).await
             .context("Failed to display notification")?;
 
         Ok(())
