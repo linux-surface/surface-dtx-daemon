@@ -115,6 +115,7 @@ impl MessageHandler {
 
         debug!(self.log, "message received"; "message" => ?m);
 
+        // ignore any message that is not intended for us
         if m.interface() != Some("org.surface.dtx".into()) {
             return Ok(());
         }
@@ -123,6 +124,7 @@ impl MessageHandler {
             return Ok(());
         }
 
+        // get status argument
         let status: Status = m.read1::<&str>()
             .context("Protocol error")?
             .parse()
@@ -130,6 +132,7 @@ impl MessageHandler {
 
         debug!(self.log, "detach-state changed"; "value" => ?status);
 
+        // handle status notification
         match status {
             Status::DetachReady     => self.notify_detach_ready().await,
             Status::DetachCompleted => self.notify_detach_completed().await,
