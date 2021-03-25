@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
                     crit!(logger, "Main message handler task panicked");
                     std::panic::resume_unwind(e.into_panic())
                 },
-                Err(_) => Ok(()),
+                Err(_) => unreachable!("Main task has been canceled"),
             }
         },
         result = sys_task => {
@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
                     crit!(logger, "D-Bus system task panicked");
                     std::panic::resume_unwind(e.into_panic())
                 },
-                Err(_) => Ok(()),
+                Err(_) => unreachable!("D-Bus system task has been canceled"),
             }
         },
         result = ses_task => {
@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
                     crit!(logger, "D-Bus session task panicked");
                     std::panic::resume_unwind(e.into_panic())
                 },
-                Err(_) => Ok(()),
+                Err(_) => unreachable!("D-Bus session task has been canceled"),
             }
         },
     }
