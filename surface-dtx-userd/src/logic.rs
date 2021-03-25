@@ -1,6 +1,7 @@
 use crate::notify::{Notification, NotificationHandle, Timeout};
 use crate::utils::JoinHandleExt;
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -69,6 +70,29 @@ pub async fn run(logger: Logger) -> Result<()> {
 }
 
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Status {
+    DetachReady,
+    DetachCompleted,
+    DetachAborted,
+    AttachCompleted,
+}
+
+impl FromStr for Status {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "detach-ready"     => Ok(Self::DetachReady),
+            "detach-completed" => Ok(Self::DetachCompleted),
+            "detach-aborted"   => Ok(Self::DetachAborted),
+            "attach-completed" => Ok(Self::AttachCompleted),
+            _ => anyhow::bail!("Invalid detachment state: '{}'", s),
+        }
+    }
+}
+
+
 #[derive(Clone)]
 struct MessageHandler {
     log:          Logger,
@@ -99,25 +123,18 @@ impl MessageHandler {
             return Ok(());
         }
 
-        let state: &str = m.read1()
+        let status: Status = m.read1::<&str>()
+            .context("Protocol error")?
+            .parse()
             .context("Protocol error")?;
 
-        debug!(self.log, "detach-state changed"; "value" => state);
+        debug!(self.log, "detach-state changed"; "value" => ?status);
 
-        match state {
-            "detach-ready" => {
-                self.notify_detach_ready().await
-            },
-            "detach-completed" | "detach-aborted" => {
-                self.notify_detach_completed().await
-            },
-            "attach-completed" => {
-                self.notify_attach_completed().await
-            },
-            _ => {
-                Err(anyhow::anyhow!("Invalid detachment state: {}", state)
-                    .context("Protocol error"))
-            },
+        match status {
+            Status::DetachReady     => self.notify_detach_ready().await,
+            Status::DetachCompleted => self.notify_detach_completed().await,
+            Status::DetachAborted   => self.notify_detach_completed().await,
+            Status::AttachCompleted => self.notify_attach_completed().await,
         }
     }
 
