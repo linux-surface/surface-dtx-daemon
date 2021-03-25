@@ -57,16 +57,6 @@ fn bootstrap() -> Result<(Logger, Config)> {
 }
 
 async fn run(logger: &Logger, _config: Config) -> Result<()> {
-    // set up and start D-Bus connections (system and user-session)
-    let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
-        .context("Failed to connect to D-Bus (system)")?;
-
-    let (ses_rsrc, ses_conn) = connection::new::<SyncConnection>(BusType::Session)
-        .context("Failed to connect to D-Bus (session)")?;
-
-    let sys_task = tokio::spawn(sys_rsrc);
-    let ses_task = tokio::spawn(ses_rsrc);
-
     // set up signal handling for shutdown
     let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
     let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
@@ -80,6 +70,16 @@ async fn run(logger: &Logger, _config: Config) -> Result<()> {
 
         info!(log, "received {}, shutting down...", cause);
     };
+
+    // set up and start D-Bus connections (system and user-session)
+    let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
+        .context("Failed to connect to D-Bus (system)")?;
+
+    let (ses_rsrc, ses_conn) = connection::new::<SyncConnection>(BusType::Session)
+        .context("Failed to connect to D-Bus (session)")?;
+
+    let sys_task = tokio::spawn(sys_rsrc);
+    let ses_task = tokio::spawn(ses_rsrc);
 
     // set up D-Bus message listener task
     let log = logger.clone();
