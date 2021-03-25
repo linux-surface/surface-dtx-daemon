@@ -70,24 +70,12 @@ async fn main() -> Result<()> {
 
     let log = logger.clone();
     let sig = async move {
-        // wait for first signal
         let cause = tokio::select! {
             _ = sigint.recv()  => "SIGINT",
             _ = sigterm.recv() => "SIGTERM",
         };
 
         info!(log, "received {}, shutting down...", cause);
-
-        // force termination on second signal
-        tokio::spawn(async move {
-            let (cause, tval) = tokio::select! {
-                _ = sigint.recv()  => ("SIGINT",   2),   // = value of SIGINT
-                _ = sigterm.recv() => ("SIGTERM", 15),   // = value of SIGTERM
-            };
-
-            info!(log, "received {}, terminating...", cause);
-            std::process::exit(128 + tval)
-        });
     };
 
     // set up D-Bus message listener task
