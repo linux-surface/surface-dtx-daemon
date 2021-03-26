@@ -57,16 +57,25 @@ fn logger(config: &Config) -> Logger {
     Logger::root(drain, o!())
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn bootstrap() -> Result<(Logger, Config)> {
+    // handle command line input
     let matches = cli::app().get_matches();
 
+    // set up config
     let config = match matches.value_of("config") {
         Some(path) => Config::load_file(path)?,
         None       => Config::load()?,
     };
 
+    // set up logger
     let logger = logger(&config);
+
+    Ok((logger, config))
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
+    let (logger, config) = bootstrap()?;
 
     let event_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
