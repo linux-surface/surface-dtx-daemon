@@ -87,13 +87,14 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     // set-up task-queue for external processes
     let (mut queue, queue_tx) = TaskQueue::new();
 
-    // dbus service
+    // set up D-Bus connection
     let (dbus_rsrc, dbus_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus")?;
 
     let dbus_rsrc = dbus_rsrc.map(|e| Err(e).context("D-Bus connection error"));
     let dbus_task = tokio::spawn(dbus_rsrc);
 
+    // set up D-Bus service
     dbus_conn.request_name("org.surface.dtx", false, true, false).await
         .context("Failed to set up D-Bus service")?;
 
