@@ -3,14 +3,14 @@ use crate::{ControlDevice, error::Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use slog::{debug, Logger};
-
-use sdtx::DeviceMode;
-
 use dbus::Message;
 use dbus::channel::Sender;
 use dbus::nonblock::SyncConnection;
 use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
+
+use sdtx::DeviceMode;
+
+use slog::{debug, Logger};
 
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

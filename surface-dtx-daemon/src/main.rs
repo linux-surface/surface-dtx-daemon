@@ -12,17 +12,9 @@ use service::{DetachState, Service};
 use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::future::Future;
+use std::os::unix::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::os::unix::ffi::OsStrExt;
-
-use sdtx::Event;
-use sdtx::event::{BaseState, CancelReason, DeviceMode, LatchStatus};
-
-use tokio::process::Command;
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::task::JoinHandle;
 
 use dbus::channel::{BusType, MatchingReceiver};
 use dbus::message::MatchRule;
@@ -32,7 +24,15 @@ use dbus_crossroads::Crossroads;
 
 use futures::prelude::*;
 
+use sdtx::Event;
+use sdtx::event::{BaseState, CancelReason, DeviceMode, LatchStatus};
+
 use slog::{crit, debug, error, info, o, trace, warn, Logger};
+
+use tokio::process::Command;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::task::JoinHandle;
 
 
 type ControlDevice = sdtx::Device<std::fs::File>;

@@ -1,6 +1,6 @@
+use crate::error::{ErrorKind, Result, ResultExt};
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
-use crate::error::{ErrorKind, Result, ResultExt};
 
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-daemon.conf";
