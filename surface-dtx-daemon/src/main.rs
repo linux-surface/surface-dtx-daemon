@@ -91,7 +91,8 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let serv = service::build(logger.clone(), &mut dbus_cr, dbus_conn.clone(), control_device.clone())?;
 
     dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
-        dbus_cr.handle_message(msg, conn).unwrap();
+        // ignore result: Crossroads::handle_message() fails if message is not a method call
+        let _ = dbus_cr.handle_message(msg, conn);
         true
     }));
 

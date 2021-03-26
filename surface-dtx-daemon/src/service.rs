@@ -67,18 +67,21 @@ impl Service {
             };
 
             let msg = changed.to_emit_message(&"/org/surface/dtx".into());
+
+            // send will only fail due to lack of memory
             self.conn.send(msg).unwrap();
         }
     }
 
     pub fn signal_detach_state_change(&self, state: DetachState) {
         let msg = Message::new_signal("/org/surface/dtx", "org.surface.dtx", "DetachStateChanged")
-                .unwrap()
+                .unwrap()       // out of memory
                 .append1(state.as_str());
 
         debug!(self.log, "service: sending detach-state-change signal";
                "value" => state.as_str());
 
+        // send will only fail due to lack of memory
         self.conn.send(msg).unwrap();
     }
 }
