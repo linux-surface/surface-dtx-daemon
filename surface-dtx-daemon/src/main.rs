@@ -9,6 +9,9 @@ use service::{DetachState, Service};
 mod tq;
 use tq::TaskQueue;
 
+mod utils;
+use utils::JoinHandleExt;
+
 
 use std::convert::TryFrom;
 use std::ffi::OsStr;
@@ -92,7 +95,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         .context("Failed to connect to D-Bus")?;
 
     let dbus_rsrc = dbus_rsrc.map(|e| Err(e).context("D-Bus connection error"));
-    let dbus_task = tokio::spawn(dbus_rsrc);
+    let dbus_task = tokio::spawn(dbus_rsrc).guard();
 
     // set up D-Bus service
     dbus_conn.request_name("org.surface.dtx", false, true, false).await
