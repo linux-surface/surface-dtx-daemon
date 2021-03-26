@@ -73,10 +73,7 @@ fn bootstrap() -> Result<(Logger, Config)> {
     Ok((logger, config))
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
-    let (logger, config) = bootstrap()?;
-
+async fn run(logger: Logger, config: Config) -> Result<()> {
     let event_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
 
@@ -146,17 +143,26 @@ async fn main() -> Result<()> {
     };
 
     // wait for shutdown driver to complete
-    let result = match result {
+    match result {
         Ok(Some(shutdown_driver)) => shutdown_driver.await.context("Runtime error"),
         x => x.map(|_| ()),
-    };
+    }
+}
 
-    if let Err(e) = result {
-        panic_with_critical_error(&logger, &e);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
+    // no logger so we can't log errors here
+    let (logger, config) = bootstrap()?;
+
+    // run main function and log critical errors
+    let result = run(logger.clone(), config).await;
+    if let Err(ref err) = result {
+        crit!(logger, "Critical error: {}\n", err);
     }
 
-    std::process::exit(0)
+    result
 }
+
 
 async fn shutdown_signal<F>(log: Logger, shutdown_task: F) -> Result<JoinHandle<()>>
 where
