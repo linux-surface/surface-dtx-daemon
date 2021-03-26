@@ -91,6 +91,12 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let (dbus_rsrc, dbus_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus")?;
 
+    let dbus_rsrc = dbus_rsrc.map(|e| Err(e).context("D-Bus connection error"));
+    let dbus_task = tokio::spawn(dbus_rsrc);
+
+    dbus_conn.request_name("org.surface.dtx", false, true, false).await
+        .context("Failed to set up D-Bus service")?;
+
     let mut dbus_cr = Crossroads::new();
     let serv = service::build(logger.clone(), &mut dbus_cr, dbus_conn.clone(), control_device.clone())?;
 
@@ -114,9 +120,6 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
 
     // process queue handler and init stuff
     let process_task = async move {
-        dbus_conn.request_name("org.surface.dtx", false, true, false).await
-            .context("Failed to set up D-Bus service")?;
-
         // make sure the device-mode in the service is up to date
         let mode = control_device.get_device_mode()
             .context("DTX device error")?;
@@ -144,7 +147,11 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         res = shutdown_signal => res.map(Some),
         res = event_task => res.map(|_| None),
         _ = process_task => Ok(None),
-        err = dbus_rsrc => Err(err).context("D-Bus connection error")
+        res = dbus_task => match res {
+            Ok(res) => res,
+            Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+            Err(_) => unreachable!("Task unexpectedly canceled"),
+        },
     };
 
     // wait for shutdown driver to complete
