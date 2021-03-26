@@ -181,14 +181,14 @@ where
 
     // schedule driver for completion
     let driver = async move {
-        let tval = tokio::select! {
-            _ = sigint.recv()  =>  2,   // = value of SIGINT
-            _ = sigterm.recv() => 15,   // = value of SIGTERM
-            _ = shutdown_task  =>  0,
+        let (sig, tval) = tokio::select! {
+            _ = sigint.recv()  => ("SIGINT",   2),  // = value of SIGINT
+            _ = sigterm.recv() => ("SIGTERM", 15),  // = value of SIGTERM
+            _ = shutdown_task  => ("OK",       0),
         };
 
         if tval != 0 {
-            info!(log, "terminating...");
+            warn!(log, "received {} during shutdown, terminating...", sig);
             std::process::exit(128 + tval)
         }
     };
