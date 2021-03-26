@@ -6,6 +6,9 @@ use config::Config;
 mod service;
 use service::{DetachState, Service};
 
+mod tq;
+use tq::TaskQueue;
+
 
 use std::convert::TryFrom;
 use std::ffi::OsStr;
@@ -31,12 +34,14 @@ use slog::{crit, debug, error, info, o, trace, warn, Logger};
 
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
 
 type ControlDevice = sdtx::Device<std::fs::File>;
 type EventDevice = sdtx_tokio::Device;
+
+type Task = tq::Task<Error>;
 
 
 fn logger(config: &Config) -> Logger {
@@ -81,7 +86,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         .context("Failed to access DTX device")?);
 
     // set-up task-queue for external processes
-    let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(32);
+    let (mut queue, queue_tx) = TaskQueue::new();
 
     // dbus service
     let (dbus_rsrc, dbus_conn) = connection::new::<SyncConnection>(BusType::System)
@@ -119,7 +124,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
 
         serv.set_device_mode(mode);
 
-        process_task(queue_rx).await
+        queue.run().await
     };
 
     // set up shutdown so that process_task is driven to completion
@@ -198,7 +203,7 @@ where
 }
 
 async fn event_task(log: Logger, config: Config, service: Arc<Service>,
-        mut event_device: EventDevice, control_device: Arc<ControlDevice>, task_queue_tx: Sender<BoxedTask>)
+        mut event_device: EventDevice, control_device: Arc<ControlDevice>, task_queue_tx: Sender<Task>)
     -> Result<()>
 {
     let mut events = event_device.events_async()
@@ -215,19 +220,6 @@ async fn event_task(log: Logger, config: Config, service: Arc<Service>,
     Ok(())
 }
 
-async fn process_task(task_queue_rx: Receiver<BoxedTask>) -> Result<()>
-{
-    let mut queue = task_queue_rx;
-
-    while let Some(task) = queue.recv().await {
-        task.await?;
-    }
-
-    Ok(())
-}
-
-
-type BoxedTask = std::pin::Pin<Box<dyn Future<Output=Result<()>> + Send>>;
 
 struct EventHandler {
     log: Logger,
@@ -235,13 +227,13 @@ struct EventHandler {
     service: Arc<Service>,
     device: Arc<ControlDevice>,
     state: Arc<Mutex<State>>,
-    task_queue_tx: Sender<BoxedTask>,
+    task_queue_tx: Sender<Task>,
     ignore_request: u32,
 }
 
 impl EventHandler {
     fn new(log: Logger, config: Config, service: Arc<Service>, device: Arc<ControlDevice>,
-           task_queue_tx: Sender<BoxedTask>)
+           task_queue_tx: Sender<Task>)
         -> Self
     {
         let state = Arc::new(Mutex::new(State::Normal));
@@ -495,7 +487,7 @@ impl EventHandler {
         self.schedule_process_task(Box::pin(task));
     }
 
-    fn schedule_process_task(&mut self, task: BoxedTask) {
+    fn schedule_process_task(&mut self, task: Task) {
         use tokio::sync::mpsc::error::TrySendError;
 
         match self.task_queue_tx.try_send(task) {
