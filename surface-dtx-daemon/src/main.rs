@@ -19,9 +19,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Error, Result};
 
-use dbus::channel::{BusType, MatchingReceiver};
+use dbus::channel::MatchingReceiver;
 use dbus::message::MatchRule;
-use dbus::nonblock::SyncConnection;
 use dbus_tokio::connection;
 use dbus_crossroads::Crossroads;
 
@@ -89,7 +88,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let (mut queue, queue_tx) = TaskQueue::new();
 
     // dbus service
-    let (dbus_rsrc, dbus_conn) = connection::new::<SyncConnection>(BusType::System)
+    let (dbus_rsrc, dbus_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus")?;
 
     let mut dbus_cr = Crossroads::new();

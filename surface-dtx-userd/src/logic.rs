@@ -7,7 +7,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 
 use dbus::Message;
-use dbus::channel::BusType;
 use dbus::message::MatchRule;
 use dbus::nonblock::SyncConnection;
 use dbus_tokio::connection;
@@ -19,10 +18,10 @@ use slog::{Logger, debug};
 
 pub async fn run(logger: Logger) -> Result<()> {
     // set up and start D-Bus connections (system and user-session)
-    let (sys_rsrc, sys_conn) = connection::new::<SyncConnection>(BusType::System)
+    let (sys_rsrc, sys_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus (system)")?;
 
-    let (ses_rsrc, ses_conn) = connection::new::<SyncConnection>(BusType::Session)
+    let (ses_rsrc, ses_conn) = connection::new_session_sync()
         .context("Failed to connect to D-Bus (session)")?;
 
     let sys_rsrc = sys_rsrc.map(|e| Err(e).context("D-Bus connection error (system)"));
