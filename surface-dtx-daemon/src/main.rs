@@ -1,6 +1,3 @@
-mod error;
-use error::{Result, ResultExt, CliResult, Error, ErrorKind};
-
 mod cli;
 
 mod config;
@@ -9,12 +6,15 @@ use config::Config;
 mod service;
 use service::{DetachState, Service};
 
+
 use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::future::Future;
 use std::os::unix::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use anyhow::{Context, Error, Result};
 
 use dbus::channel::{BusType, MatchingReceiver};
 use dbus::message::MatchRule;
@@ -58,7 +58,7 @@ fn logger(config: &Config) -> Logger {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> CliResult {
+async fn main() -> Result<()> {
     let matches = cli::app().get_matches();
 
     let config = match matches.value_of("config") {
@@ -69,17 +69,17 @@ async fn main() -> CliResult {
     let logger = logger(&config);
 
     let event_device = sdtx_tokio::connect().await
-        .context(ErrorKind::DeviceAccess)?;
+        .context("Failed to access DTX device")?;
 
     let control_device = Arc::new(sdtx::connect()
-        .context(ErrorKind::DeviceAccess)?);
+        .context("Failed to access DTX device")?);
 
     // set-up task-queue for external processes
     let (queue_tx, queue_rx) = tokio::sync::mpsc::channel(32);
 
     // dbus service
     let (dbus_rsrc, dbus_conn) = connection::new::<SyncConnection>(BusType::System)
-        .context(ErrorKind::DBusService)?;
+        .context("Failed to connect to D-Bus")?;
 
     let mut dbus_cr = Crossroads::new();
     let serv = service::build(logger.clone(), &mut dbus_cr, dbus_conn.clone(), control_device.clone())?;
@@ -104,11 +104,11 @@ async fn main() -> CliResult {
     // process queue handler and init stuff
     let process_task = async move {
         dbus_conn.request_name("org.surface.dtx", false, true, false).await
-            .context(ErrorKind::DBusService)?;
+            .context("Failed to set up D-Bus service")?;
 
         // make sure the device-mode in the service is up to date
         let mode = control_device.get_device_mode()
-            .context(ErrorKind::DeviceIo)?;
+            .context("DTX device error")?;
 
         serv.set_device_mode(mode);
 
@@ -133,14 +133,12 @@ async fn main() -> CliResult {
         res = shutdown_signal => res.map(Some),
         res = event_task => res.map(|_| None),
         _ = process_task => Ok(None),
-        err = dbus_rsrc => Err(Error::with_compat(Box::new(err), ErrorKind::DBusService)),
+        err = dbus_rsrc => Err(err).context("D-Bus connection error")
     };
 
     // wait for shutdown driver to complete
     let result = match result {
-        Ok(Some(shutdown_driver)) => shutdown_driver.await.map_err(|e| {
-            Error::with(e, ErrorKind::Runtime)
-        }),
+        Ok(Some(shutdown_driver)) => shutdown_driver.await.context("Runtime error"),
         x => x.map(|_| ()),
     };
 
@@ -155,8 +153,8 @@ async fn shutdown_signal<F>(log: Logger, shutdown_task: F) -> Result<JoinHandle<
 where
     F: Future<Output=()> + 'static + Send,
 {
-    let mut sigint = signal(SignalKind::interrupt()).context(ErrorKind::Setup)?;
-    let mut sigterm = signal(SignalKind::terminate()).context(ErrorKind::Setup)?;
+    let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
+    let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
 
     // wait for first signal
     let sig = tokio::select! {
@@ -188,12 +186,12 @@ async fn event_task(log: Logger, config: Config, service: Arc<Service>,
     -> Result<()>
 {
     let mut events = event_device.events_async()
-        .context(ErrorKind::DeviceIo)?;
+        .context("DTX device error")?;
 
     let mut handler = EventHandler::new(log, config, service, control_device, task_queue_tx);
 
     while let Some(evt) = events.next().await {
-        let evt = evt.context(ErrorKind::DeviceIo)?;
+        let evt = evt.context("DTX device error")?;
 
         handler.handle(evt)?;
     }
@@ -346,7 +344,7 @@ impl EventHandler {
             },
             State::Aborting | State::Attaching => {
                 self.ignore_request += 1;
-                self.device.latch_request().context(ErrorKind::DeviceIo)?;
+                self.device.latch_request().context("DTX latch request failed")?;
             },
         }
 
@@ -384,7 +382,7 @@ impl EventHandler {
                 let output = Command::new(path)
                     .current_dir(dir)
                     .output().await
-                    .context(ErrorKind::Process)?;
+                    .context("Subprocess error (attach)")?;
 
                 log_process_output(&log, &output);
                 debug!(log, "subprocess: attach finished");
@@ -418,7 +416,7 @@ impl EventHandler {
                     .env("EXIT_DETACH_COMMENCE", "0")
                     .env("EXIT_DETACH_ABORT", "1")
                     .output().await
-                    .context(ErrorKind::Process)?;
+                    .context("Subprocess error (detach)")?;
 
                 log_process_output(&log, &output);
                 debug!(log, "subprocess: detach finished");
@@ -426,10 +424,10 @@ impl EventHandler {
                 if *state.lock().unwrap() == State::Detaching {
                     if output.status.success() {
                         debug!(log, "commencing detach, opening latch");
-                        device.latch_confirm().context(ErrorKind::DeviceIo)?;
+                        device.latch_confirm().context("DTX latch confirmation failed")?;
                     } else {
                         info!(log, "aborting detach");
-                        device.latch_cancel().context(ErrorKind::DeviceIo)?;
+                        device.latch_cancel().context("DTX latch cancel request failed")?;
                     }
                 } else {
                     debug!(log, "state changed during detachment, not opening latch");
@@ -440,7 +438,7 @@ impl EventHandler {
 
                 if *state.lock().unwrap() == State::Detaching {
                     debug!(log, "commencing detach, opening latch");
-                    device.latch_confirm().context(ErrorKind::DeviceIo)?;
+                    device.latch_confirm().context("DTX latch confirmation failed")?;
                 } else {
                     debug!(log, "state changed during detachment, not opening latch");
                 }
@@ -465,7 +463,7 @@ impl EventHandler {
                 let output = Command::new(path)
                     .current_dir(dir)
                     .output().await
-                    .context(ErrorKind::Process)?;
+                    .context("Subprocess error (detach_abort)")?;
 
                 log_process_output(&log, &output);
                 debug!(log, "subprocess: detach_abort finished");
@@ -518,7 +516,7 @@ fn log_process_output(log: &Logger, output: &std::process::Output) {
 
 fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {
     crit!(log, "Error: {}", err);
-    for cause in err.iter_causes() {
+    for cause in err.chain() {
         crit!(log, "Caused by: {}", cause);
     }
 

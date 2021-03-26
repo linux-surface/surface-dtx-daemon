@@ -1,7 +1,9 @@
-use crate::{ControlDevice, error::Result};
+use crate::ControlDevice;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+use anyhow::Result;
 
 use dbus::Message;
 use dbus::channel::Sender;
@@ -24,10 +26,10 @@ pub enum DetachState {
 impl DetachState {
     fn as_str(self) -> &'static str {
         match self {
-            DetachState::DetachReady     => "detach-ready",
-            DetachState::DetachCompleted => "detach-completed",
-            DetachState::DetachAborted   => "detach-aborted",
-            DetachState::AttachCompleted => "attach-completed",
+            Self::DetachReady     => "detach-ready",
+            Self::DetachCompleted => "detach-completed",
+            Self::DetachAborted   => "detach-aborted",
+            Self::AttachCompleted => "attach-completed",
         }
     }
 }
