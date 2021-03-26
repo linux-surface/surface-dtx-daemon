@@ -27,7 +27,7 @@ pub struct Log {
     pub level: LogLevel,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all="lowercase")]
 pub enum LogLevel {
     Critical,
