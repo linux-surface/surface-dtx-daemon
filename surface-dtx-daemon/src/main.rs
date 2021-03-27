@@ -124,15 +124,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     // the first shutdown signal will be properly handled.
 
     // process queue handler and init stuff
-    let process_task = async move {
-        // make sure the device-mode in the service is up to date
-        let mode = control_device.get_device_mode()
-            .context("DTX device error")?;
-
-        serv.set_device_mode(mode);
-
-        queue.run().await
-    };
+    let process_task = async move { queue.run().await };
 
     // set up shutdown so that process_task is driven to completion
     let log = logger.clone();
@@ -243,9 +235,19 @@ impl EventHandler {
     async fn run(&mut self) -> Result<()> {
         let mut evdev = EventDevice::from(self.device.file().try_clone().await?);
 
+        // enable events
         let mut events = evdev.events_async()
             .context("DTX device error")?;
 
+        // Update our state before we start handling events but after we've
+        // enabled them. This way, we can ensure that we don't miss any
+        // events/changes and accidentally set a stale state.
+        let mode = self.device.get_device_mode()
+            .context("DTX device error")?;
+
+        self.service.set_device_mode(mode);
+
+        // handle events
         while let Some(evt) = events.next().await {
             self.handle(evt.context("DTX device error")?)?;
         }
