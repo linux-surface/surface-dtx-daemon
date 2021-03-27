@@ -87,13 +87,15 @@ impl Service {
 }
 
 
-pub fn build(log: Logger, cr: &mut Crossroads, c: Arc<SyncConnection>, device: Arc<ControlDevice>)
+pub fn build(log: &Logger, cr: &mut Crossroads, c: &Arc<SyncConnection>, device: &Arc<ControlDevice>)
         -> Result<Arc<Service>>
 {
+    let device = device.clone();
+
     let service = Arc::new(Service {
-        log,
+        log: log.clone(),
         mode: Mutex::new(DeviceMode::Laptop),
-        conn: c,
+        conn: c.clone(),
     });
 
     let iface_token = cr.register("org.surface.dtx", |b: &mut IfaceBuilder<Arc<Service>>| {

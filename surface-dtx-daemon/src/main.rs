@@ -102,7 +102,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         .context("Failed to set up D-Bus service")?;
 
     let mut dbus_cr = Crossroads::new();
-    let serv = service::build(logger.clone(), &mut dbus_cr, dbus_conn.clone(), control_device.clone())?;
+    let serv = service::build(&logger, &mut dbus_cr, &dbus_conn, &control_device)?;
 
     dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
         // Crossroads::handle_message() only fails if message is not a method call
