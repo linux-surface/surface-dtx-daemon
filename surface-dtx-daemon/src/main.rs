@@ -247,9 +247,7 @@ impl EventHandler {
             .context("DTX device error")?;
 
         while let Some(evt) = events.next().await {
-            let evt = evt.context("DTX device error")?;
-
-            self.handle(evt)?;
+            self.handle(evt.context("DTX device error")?)?;
         }
 
         Ok(())
