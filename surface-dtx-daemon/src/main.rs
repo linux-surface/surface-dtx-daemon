@@ -15,7 +15,6 @@ use utils::JoinHandleExt;
 
 use std::convert::TryFrom;
 use std::ffi::OsStr;
-use std::future::Future;
 use std::os::unix::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -37,7 +36,6 @@ use slog::{crit, debug, error, info, o, trace, warn, Logger};
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::Sender;
-use tokio::task::JoinHandle;
 
 
 type ControlDevice = sdtx::Device<std::fs::File>;
@@ -81,21 +79,28 @@ fn bootstrap() -> Result<(Logger, Config)> {
 }
 
 async fn run(logger: Logger, config: Config) -> Result<()> {
+    // set up signal handling
+    let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
+    let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
+
+    let sig = async { tokio::select! {
+        _ = sigint.recv()  => "SIGINT",
+        _ = sigterm.recv() => "SIGTERM",
+    }};
+
+    // prepare devices
     let event_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
 
     let control_device = Arc::new(sdtx::connect()
         .context("Failed to access DTX device")?);
 
-    // set-up task-queue for external processes
-    let (mut queue, queue_tx) = TaskQueue::new();
-
     // set up D-Bus connection
     let (dbus_rsrc, dbus_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus")?;
 
     let dbus_rsrc = dbus_rsrc.map(|e| Err(e).context("D-Bus connection error"));
-    let dbus_task = tokio::spawn(dbus_rsrc).guard();
+    let mut dbus_task = tokio::spawn(dbus_rsrc).guard();
 
     // set up D-Bus service
     let mut dbus_cr = Crossroads::new();
@@ -110,51 +115,60 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         true
     }));
 
-    // event handler
+    // set up task-queue
+    let (mut queue, queue_tx) = TaskQueue::new();
+    let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
+
+    // set up event handler
     let mut event_handler = EventHandler::new(&logger, config, &serv, event_device, queue_tx);
-    let event_task = async move { event_handler.run().await };
+    let mut event_task = tokio::spawn(async move { event_handler.run().await }).guard();
 
-    // This implementation is structured around two main tasks: process_task
-    // and main_task. main_task drives all processing, while process_task is
-    // the subtask managing the task queue. When the first shutdown signal has
-    // been received, main_task stops all processing and waits for the shutdown
-    // driver to complete. The shutdown driver will then continue to run
-    // process_task, either to completion or until the second signal has been
-    // received. This way, under normal operation, all events received befor
-    // the first shutdown signal will be properly handled.
-
-    // process queue handler and init stuff
-    let process_task = async move { queue.run().await };
-
-    // set up shutdown so that process_task is driven to completion
-    let log = logger.clone();
-    let process_task = process_task.map(move |result| {
-        if let Err(e) = result {
-            panic_with_critical_error(&log, &e);
-        }
-    });
-
-    let process_task = process_task.shared();
-
-    // shutdown handler and main task
-    let shutdown_signal = shutdown_signal(logger.clone(), process_task.clone());
+    // collect main driver tasks
+    let tasks = async { tokio::select! {
+        result = &mut dbus_task  => result,
+        result = &mut event_task => result,
+        result = &mut queue_task => result,
+    }};
 
     debug!(logger, "running...");
-    let result = tokio::select! {
-        res = shutdown_signal => res.map(Some),
-        res = event_task => res.map(|_| None),
-        _ = process_task => Ok(None),
-        res = dbus_task => match res {
+
+    // run until whatever comes first: error, panic, or shutdown signal
+    tokio::select! {
+        signame = sig => {
+            // first shutdown signal: try to do a clean shutdown and complete
+            // the task queue
+            info!(logger, "received {}, shutting down...", signame);
+
+            // stop event task: don't handle any new DTX events and drop task
+            // queue transmitter to eventually cause the task queue task to
+            // complete
+            event_task.abort();
+
+            // pepare handling for second shutdown signal
+            let sig = async { tokio::select! {
+                _ = sigint.recv()  => ("SIGINT",   2),
+                _ = sigterm.recv() => ("SIGTERM", 15),
+            }};
+
+            // try to run task queue to completion, shut down and exit if
+            // second signal received
+            tokio::select! {
+                (signame, tval) = sig => {
+                    warn!(logger, "received {} during shutdown, terminating...", signame);
+                    std::process::exit(128 + tval)
+                },
+                result = queue_task => match result {
+                    Ok(res) => res,
+                    Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+                    Err(_) => unreachable!("Task unexpectedly canceled"),
+                }
+            }
+        }
+        result = tasks => match result {
             Ok(res) => res,
             Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
             Err(_) => unreachable!("Task unexpectedly canceled"),
         },
-    };
-
-    // wait for shutdown driver to complete
-    match result {
-        Ok(Some(shutdown_driver)) => shutdown_driver.await.context("Runtime error"),
-        x => x.map(|_| ()),
     }
 }
 
