@@ -38,16 +38,16 @@ impl DetachState {
 pub struct Service {
     log: Logger,
     conn: Arc<SyncConnection>,
-    device: Arc<ControlDevice>,
+    device: ControlDevice,
     mode: Mutex<DeviceMode>,
 }
 
 impl Service {
-    pub fn new(log: &Logger, conn: &Arc<SyncConnection>, device: &Arc<ControlDevice>) -> Arc<Self> {
+    pub fn new(log: &Logger, conn: &Arc<SyncConnection>, device: ControlDevice) -> Arc<Self> {
         let service = Service {
             log: log.clone(),
             conn: conn.clone(),
-            device: device.clone(),
+            device,
             mode: Mutex::new(DeviceMode::Laptop),
         };
 

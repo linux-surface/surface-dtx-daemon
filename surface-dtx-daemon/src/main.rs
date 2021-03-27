@@ -92,8 +92,8 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let event_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
 
-    let control_device = Arc::new(sdtx::connect()
-        .context("Failed to access DTX device")?);
+    let control_device = sdtx::connect()
+        .context("Failed to access DTX device")?;
 
     // set up D-Bus connection
     let (dbus_rsrc, dbus_conn) = connection::new_system_sync()
@@ -105,7 +105,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     // set up D-Bus service
     let mut dbus_cr = Crossroads::new();
 
-    let serv = Service::new(&logger, &dbus_conn, &control_device);
+    let serv = Service::new(&logger, &dbus_conn, control_device);
     serv.request_name().await?;
     serv.register(&mut dbus_cr)?;
 
