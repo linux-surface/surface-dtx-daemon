@@ -112,7 +112,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
 
     // event handler
     let mut event_handler = EventHandler::new(&logger, config, &serv, event_device, queue_tx);
-    let event_task = event_handler.run();
+    let event_task = async move { event_handler.run().await };
 
     // This implementation is structured around two main tasks: process_task
     // and main_task. main_task drives all processing, while process_task is
