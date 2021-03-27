@@ -34,7 +34,7 @@ pub struct EventHandler {
 
 impl EventHandler {
     pub fn new(log: &Logger, config: Config, service: &Arc<Service>, device: Device,
-           task_queue_tx: Sender<Task>)
+               task_queue_tx: Sender<Task>)
         -> Self
     {
         EventHandler {
@@ -75,21 +75,11 @@ impl EventHandler {
         trace!(self.log, "received event"; "event" => ?evt);
 
         match evt {
-            Event::DeviceMode { mode } => {
-                self.on_device_mode_change(mode);
-            },
-            Event::BaseConnection { state, .. } => {
-                self.on_connection_change(state);
-            },
-            Event::LatchStatus { status } => {
-                self.on_latch_state_change(status);
-            },
-            Event::Request => {
-                self.on_detach_request()?;
-            },
-            Event::Cancel { reason } => {
-                self.on_detach_error(reason);
-            },
+            Event::Request                      => self.on_detach_request()?,
+            Event::Cancel { reason }            => self.on_detach_error(reason),
+            Event::BaseConnection { state, .. } => self.on_connection_change(state),
+            Event::LatchStatus { status }       => self.on_latch_state_change(status),
+            Event::DeviceMode { mode }          => self.on_device_mode_change(mode),
             Event::Unknown { code, data } => {
                 warn!(self.log, "unhandled event"; "code" => code, "data" => ?data);
             },
