@@ -16,6 +16,8 @@ mod utils;
 use utils::JoinHandleExt;
 
 
+use std::sync::{Arc, Mutex};
+
 use anyhow::{Context, Error, Result};
 
 use dbus::channel::MatchingReceiver;
@@ -92,17 +94,21 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let mut dbus_task = tokio::spawn(dbus_rsrc).guard();
 
     // set up D-Bus service
-    let mut dbus_cr = Crossroads::new();
+    let dbus_cr = Arc::new(Mutex::new(Crossroads::new()));
 
     let serv = Service::new(&logger, &dbus_conn, control_device);
     serv.request_name().await?;
-    serv.register(&mut dbus_cr)?;
+    serv.register(&mut dbus_cr.lock().unwrap())?;
 
-    dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
+    let cr = dbus_cr.clone();
+    let token = dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
         // Crossroads::handle_message() only fails if message is not a method call
-        dbus_cr.handle_message(msg, conn).unwrap();
+        cr.lock().unwrap().handle_message(msg, conn).unwrap();
         true
     }));
+
+    let recv_guard = utils::guard(|| { let _ = dbus_conn.stop_receive(token).unwrap(); });
+    let serv_guard = utils::guard(|| { serv.unregister(&mut dbus_cr.lock().unwrap()); });
 
     // set up task-queue
     let (mut queue, queue_tx) = TaskQueue::new();
@@ -132,6 +138,12 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
             // queue transmitter to eventually cause the task queue task to
             // complete
             event_task.abort();
+
+            // unregister service
+            drop(serv_guard);
+
+            // stop D-Bus message handling
+            drop(recv_guard);
 
             // pepare handling for second shutdown signal
             let sig = async { tokio::select! {

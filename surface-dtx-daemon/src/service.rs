@@ -83,6 +83,10 @@ impl Service {
         Ok(())
     }
 
+    pub fn unregister(self: &Arc<Self>, cr: &mut Crossroads) {
+        let _ : Option<Arc<Service>> = cr.remove(&"/org/surface/dtx".into());
+    }
+
     pub fn set_device_mode(&self, new: DeviceMode) {
         let old = {
             let mut mode = self.mode.lock().unwrap();
