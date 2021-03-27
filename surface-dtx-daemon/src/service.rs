@@ -3,7 +3,7 @@ use crate::ControlDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use dbus::Message;
 use dbus::channel::Sender;
@@ -87,7 +87,7 @@ impl Service {
 }
 
 
-pub fn build(log: &Logger, cr: &mut Crossroads, c: &Arc<SyncConnection>, device: &Arc<ControlDevice>)
+pub async fn build(log: &Logger, cr: &mut Crossroads, c: &Arc<SyncConnection>, device: &Arc<ControlDevice>)
         -> Result<Arc<Service>>
 {
     let device = device.clone();
@@ -97,6 +97,9 @@ pub fn build(log: &Logger, cr: &mut Crossroads, c: &Arc<SyncConnection>, device:
         mode: Mutex::new(DeviceMode::Laptop),
         conn: c.clone(),
     });
+
+    c.request_name("org.surface.dtx", false, true, false).await
+        .context("Failed to set up D-Bus service")?;
 
     let iface_token = cr.register("org.surface.dtx", |b: &mut IfaceBuilder<Arc<Service>>| {
         // detach-state signal

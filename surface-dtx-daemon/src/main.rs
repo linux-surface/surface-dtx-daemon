@@ -98,11 +98,8 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let dbus_task = tokio::spawn(dbus_rsrc).guard();
 
     // set up D-Bus service
-    dbus_conn.request_name("org.surface.dtx", false, true, false).await
-        .context("Failed to set up D-Bus service")?;
-
     let mut dbus_cr = Crossroads::new();
-    let serv = service::build(&logger, &mut dbus_cr, &dbus_conn, &control_device)?;
+    let serv = service::build(&logger, &mut dbus_cr, &dbus_conn, &control_device).await?;
 
     dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
         // Crossroads::handle_message() only fails if message is not a method call
