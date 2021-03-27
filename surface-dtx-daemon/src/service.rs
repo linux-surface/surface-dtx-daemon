@@ -37,11 +37,53 @@ impl DetachState {
 
 pub struct Service {
     log: Logger,
-    mode: Mutex<DeviceMode>,
     conn: Arc<SyncConnection>,
+    device: Arc<ControlDevice>,
+    mode: Mutex<DeviceMode>,
 }
 
 impl Service {
+    pub fn new(log: &Logger, conn: &Arc<SyncConnection>, device: &Arc<ControlDevice>) -> Arc<Self> {
+        let service = Service {
+            log: log.clone(),
+            conn: conn.clone(),
+            device: device.clone(),
+            mode: Mutex::new(DeviceMode::Laptop),
+        };
+
+        Arc::new(service)
+    }
+
+    pub async fn request_name(&self) -> Result<()> {
+        self.conn.request_name("org.surface.dtx", false, true, false).await
+            .context("Failed to set up D-Bus service")
+            .map(|_| ())
+    }
+
+    pub fn register(self: &Arc<Self>, cr: &mut Crossroads) -> Result<()> {
+        let iface_token = cr.register("org.surface.dtx", |b: &mut IfaceBuilder<Arc<Service>>| {
+            // detach-state signal
+            // TODO: replace with property ?
+            b.signal::<(String,), _>("DetachStateChanged", ("state",));
+
+            // device-mode property
+            b.property("DeviceMode")
+                .emits_changed_true()
+                .get(|_, service| { Ok(format!("{}", service.mode.lock().unwrap()).to_lowercase()) });
+
+            // request method
+            b.method("Request", (), (), move |_ctx, service, _args: ()| {
+                match service.device.latch_request() {
+                    Ok(()) => { Ok(()) },
+                    Err(e) => { Err(MethodErr::failed(&e)) },
+                }
+            });
+        });
+
+        cr.insert("/org/surface/dtx", &[iface_token], self.clone());
+        Ok(())
+    }
+
     pub fn set_device_mode(&self, new: DeviceMode) {
         let old = {
             let mut mode = self.mode.lock().unwrap();
@@ -84,42 +126,4 @@ impl Service {
         // send will only fail due to lack of memory
         self.conn.send(msg).unwrap();
     }
-}
-
-
-pub async fn build(log: &Logger, cr: &mut Crossroads, c: &Arc<SyncConnection>, device: &Arc<ControlDevice>)
-        -> Result<Arc<Service>>
-{
-    let device = device.clone();
-
-    let service = Arc::new(Service {
-        log: log.clone(),
-        mode: Mutex::new(DeviceMode::Laptop),
-        conn: c.clone(),
-    });
-
-    c.request_name("org.surface.dtx", false, true, false).await
-        .context("Failed to set up D-Bus service")?;
-
-    let iface_token = cr.register("org.surface.dtx", |b: &mut IfaceBuilder<Arc<Service>>| {
-        // detach-state signal
-        // TODO: replace with property ?
-        b.signal::<(String,), _>("DetachStateChanged", ("state",));
-
-        // device-mode property
-        b.property("DeviceMode")
-            .emits_changed_true()
-            .get(|_, service| { Ok(format!("{}", service.mode.lock().unwrap()).to_lowercase()) });
-
-        // request method
-        b.method("Request", (), (), move |_, _, _: ()| {
-            match device.latch_request() {
-                Ok(()) => { Ok(()) },
-                Err(e) => { Err(MethodErr::failed(&e)) },
-            }
-        });
-    });
-
-    cr.insert("/org/surface/dtx", &[iface_token], service.clone());
-    Ok(service)
 }

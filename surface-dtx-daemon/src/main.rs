@@ -46,7 +46,7 @@ type EventDevice = sdtx_tokio::Device;
 type Task = tq::Task<Error>;
 
 
-fn logger(config: &Config) -> Logger {
+fn build_logger(config: &Config) -> Logger {
     use slog::Drain;
 
     let decorator = slog_term::TermDecorator::new()
@@ -75,7 +75,7 @@ fn bootstrap() -> Result<(Logger, Config)> {
     };
 
     // set up logger
-    let logger = logger(&config);
+    let logger = build_logger(&config);
 
     Ok((logger, config))
 }
@@ -99,7 +99,10 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
 
     // set up D-Bus service
     let mut dbus_cr = Crossroads::new();
-    let serv = service::build(&logger, &mut dbus_cr, &dbus_conn, &control_device).await?;
+
+    let serv = Service::new(&logger, &dbus_conn, &control_device);
+    serv.request_name().await?;
+    serv.register(&mut dbus_cr)?;
 
     dbus_conn.start_receive(MatchRule::new_method_call(), Box::new(move |msg, conn| {
         // Crossroads::handle_message() only fails if message is not a method call
@@ -108,7 +111,8 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     }));
 
     // event handler
-    let event_task = event_task(logger.clone(), config, serv.clone(), event_device, control_device.clone(), queue_tx);
+    let mut event_handler = EventHandler::new(&logger, config, &serv, event_device, queue_tx);
+    let event_task = event_handler.run();
 
     // This implementation is structured around two main tasks: process_task
     // and main_task. main_task drives all processing, while process_task is
@@ -209,51 +213,46 @@ where
     Ok(tokio::spawn(driver))
 }
 
-async fn event_task(log: Logger, config: Config, service: Arc<Service>,
-        mut event_device: EventDevice, control_device: Arc<ControlDevice>, task_queue_tx: Sender<Task>)
-    -> Result<()>
-{
-    let mut events = event_device.events_async()
-        .context("DTX device error")?;
-
-    let mut handler = EventHandler::new(log, config, service, control_device, task_queue_tx);
-
-    while let Some(evt) = events.next().await {
-        let evt = evt.context("DTX device error")?;
-
-        handler.handle(evt)?;
-    }
-
-    Ok(())
-}
-
 
 struct EventHandler {
     log: Logger,
     config: Config,
     service: Arc<Service>,
-    device: Arc<ControlDevice>,
+    device: Arc<EventDevice>,
     state: Arc<Mutex<State>>,
     task_queue_tx: Sender<Task>,
     ignore_request: u32,
 }
 
 impl EventHandler {
-    fn new(log: Logger, config: Config, service: Arc<Service>, device: Arc<ControlDevice>,
+    fn new(log: &Logger, config: Config, service: &Arc<Service>, device: EventDevice,
            task_queue_tx: Sender<Task>)
         -> Self
     {
-        let state = Arc::new(Mutex::new(State::Normal));
-
         EventHandler {
-            log,
+            log: log.clone(),
             config,
-            service,
+            service: service.clone(),
             task_queue_tx,
-            device,
-            state,
+            device: Arc::new(device),
+            state: Arc::new(Mutex::new(State::Normal)),
             ignore_request: 0,
         }
+    }
+
+    async fn run(&mut self) -> Result<()> {
+        let mut evdev = EventDevice::from(self.device.file().try_clone().await?);
+
+        let mut events = evdev.events_async()
+            .context("DTX device error")?;
+
+        while let Some(evt) = events.next().await {
+            let evt = evt.context("DTX device error")?;
+
+            self.handle(evt)?;
+        }
+
+        Ok(())
     }
 
     fn handle(&mut self, evt: Event) -> Result<()> {
