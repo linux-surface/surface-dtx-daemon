@@ -181,7 +181,14 @@ async fn main() -> Result<()> {
         crit!(logger, "Critical error: {}\n", err);
     }
 
-    result
+    // for some reason tokio won't properly shut down, even though every task
+    // we spawned should be either canceled or completed by now...
+    if let Err(err) = result {
+        eprintln!("{:?}", err);
+        std::process::exit(1)
+    } else {
+        std::process::exit(0)
+    }
 }
 
 
