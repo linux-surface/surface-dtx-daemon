@@ -26,6 +26,7 @@ slog = { version = "2.7.0", features = ['release_max_level_debug'] }
 slog-term = "2.8.0"
 tokio = { version = "1.4.0", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
 toml = "0.5.8"
+serde_ignored = "0.1.2"
 
 [build-dependencies]
 clap = "2.33.3"

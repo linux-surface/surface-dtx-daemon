@@ -464,6 +464,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_ignored"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c2c7d39d14f2f2ea82239de71594782f186fd03501ac81f0ce08e674819ff2f"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -524,6 +533,7 @@ dependencies = [
  "sdtx",
  "sdtx-tokio",
  "serde",
+ "serde_ignored",
  "slog",
  "slog-term",
  "tokio",
@@ -540,6 +550,7 @@ dependencies = [
  "dbus-tokio",
  "futures",
  "serde",
+ "serde_ignored",
  "slog",
  "slog-term",
  "tokio",

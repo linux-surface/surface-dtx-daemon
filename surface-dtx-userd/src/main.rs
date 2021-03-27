@@ -7,7 +7,7 @@ mod utils;
 use crate::config::Config;
 
 use anyhow::{Context, Result};
-use slog::{Logger, crit, info, o};
+use slog::{Logger, crit, info, o, warn};
 use tokio::signal::unix::{SignalKind, signal};
 
 
@@ -32,13 +32,18 @@ fn bootstrap() -> Result<(Logger, Config)> {
     let matches = cli::app().get_matches();
 
     // set up config
-    let config = match matches.value_of("config") {
+    let (config, diag) = match matches.value_of("config") {
         Some(path) => Config::load_file(path)?,
         None       => Config::load()?,
     };
 
     // set up logger
     let logger = build_logger(&config);
+
+    // warn about unknown config items
+    for item in diag.unknowns {
+        warn!(logger, "Unknown config item"; "item" => item, "file" => ?diag.path)
+    }
 
     Ok((logger, config))
 }

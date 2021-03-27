@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -59,15 +60,15 @@ pub struct Delay {
 
 
 impl Config {
-    pub fn load() -> Result<Config> {
+    pub fn load() -> Result<(Config, Diagnostics)> {
         if Path::new(DEFAULT_CONFIG_PATH).exists() {
             Config::load_file(DEFAULT_CONFIG_PATH)
         } else {
-            Ok(Config::default())
+            Ok((Config::default(), Diagnostics::empty()))
         }
     }
 
-    pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Config> {
+    pub fn load_file<P: AsRef<Path>>(path: P) -> Result<(Config, Diagnostics)> {
         use std::io::Read;
 
         let mut buf = Vec::new();
@@ -77,11 +78,39 @@ impl Config {
         file.read_to_end(&mut buf)
             .with_context(|| format!("Failed to read config file (path: {:?})", path.as_ref()))?;
 
-        let mut config: Config = toml::from_slice(&buf)
+        let data = std::str::from_utf8(&buf)
             .with_context(|| format!("Failed to read config file (path: {:?})", path.as_ref()))?;
 
+        let de = &mut toml::Deserializer::new(data);
+
+        let mut unknowns = BTreeSet::new();
+        let mut config: Config = serde_ignored::deserialize(de, |path| {
+            unknowns.insert(path.to_string());
+        }).with_context(|| format!("Failed to read config file (path: {:?})", path.as_ref()))?;
+
         config.dir = path.as_ref().parent().unwrap().into();
-        Ok(config)
+
+        let diag = Diagnostics {
+            path: path.as_ref().into(),
+            unknowns,
+        };
+
+        Ok((config, diag))
+    }
+}
+
+
+pub struct Diagnostics {
+    pub path: PathBuf,
+    pub unknowns: BTreeSet<String>,
+}
+
+impl Diagnostics {
+    fn empty() -> Self {
+        Diagnostics {
+            path: PathBuf::new(),
+            unknowns: BTreeSet::new()
+        }
     }
 }
 
