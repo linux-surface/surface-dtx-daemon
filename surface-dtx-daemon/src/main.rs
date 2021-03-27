@@ -187,39 +187,6 @@ async fn main() -> Result<()> {
 }
 
 
-async fn shutdown_signal<F>(log: Logger, shutdown_task: F) -> Result<JoinHandle<()>>
-where
-    F: Future<Output=()> + 'static + Send,
-{
-    let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
-    let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
-
-    // wait for first signal
-    let sig = tokio::select! {
-        _ = sigint.recv()  => "SIGINT",
-        _ = sigterm.recv() => "SIGTERM",
-    };
-
-    info!(log, "received {}, shutting down...", sig);
-
-    // schedule driver for completion
-    let driver = async move {
-        let (sig, tval) = tokio::select! {
-            _ = sigint.recv()  => ("SIGINT",   2),  // = value of SIGINT
-            _ = sigterm.recv() => ("SIGTERM", 15),  // = value of SIGTERM
-            _ = shutdown_task  => ("OK",       0),
-        };
-
-        if tval != 0 {
-            warn!(log, "received {} during shutdown, terminating...", sig);
-            std::process::exit(128 + tval)
-        }
-    };
-
-    Ok(tokio::spawn(driver))
-}
-
-
 struct EventHandler {
     log: Logger,
     config: Config,
@@ -540,13 +507,4 @@ fn log_process_output(log: &Logger, output: &std::process::Output) {
         let stderr = OsStr::from_bytes(&output.stderr);
         info!(log, "subprocess terminated with stderr: {:?}", stderr);
     }
-}
-
-fn panic_with_critical_error(log: &Logger, err: &Error) -> ! {
-    crit!(log, "Error: {}", err);
-    for cause in err.chain() {
-        crit!(log, "Caused by: {}", cause);
-    }
-
-    panic!("{}", err)
 }
