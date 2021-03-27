@@ -1,5 +1,3 @@
-use crate::ControlDevice;
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -11,6 +9,7 @@ use dbus::nonblock::SyncConnection;
 use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 
 use sdtx::DeviceMode;
+use sdtx_tokio::Device;
 
 use slog::{debug, Logger};
 
@@ -38,12 +37,12 @@ impl DetachState {
 pub struct Service {
     log: Logger,
     conn: Arc<SyncConnection>,
-    device: ControlDevice,
+    device: Device,
     mode: Mutex<DeviceMode>,
 }
 
 impl Service {
-    pub fn new(log: &Logger, conn: &Arc<SyncConnection>, device: ControlDevice) -> Arc<Self> {
+    pub fn new(log: &Logger, conn: &Arc<SyncConnection>, device: Device) -> Arc<Self> {
         let service = Service {
             log: log.clone(),
             conn: conn.clone(),

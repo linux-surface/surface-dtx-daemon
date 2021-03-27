@@ -30,6 +30,7 @@ use futures::prelude::*;
 
 use sdtx::Event;
 use sdtx::event::{BaseState, CancelReason, DeviceMode, LatchStatus};
+use sdtx_tokio::Device;
 
 use slog::{crit, debug, error, info, o, trace, warn, Logger};
 
@@ -37,9 +38,6 @@ use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::Sender;
 
-
-type ControlDevice = sdtx::Device<std::fs::File>;
-type EventDevice = sdtx_tokio::Device;
 
 type Task = tq::Task<Error>;
 
@@ -92,7 +90,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let event_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
 
-    let control_device = sdtx::connect()
+    let control_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
 
     // set up D-Bus connection
@@ -191,14 +189,14 @@ struct EventHandler {
     log: Logger,
     config: Config,
     service: Arc<Service>,
-    device: Arc<EventDevice>,
+    device: Arc<Device>,
     state: Arc<Mutex<State>>,
     task_queue_tx: Sender<Task>,
     ignore_request: u32,
 }
 
 impl EventHandler {
-    fn new(log: &Logger, config: Config, service: &Arc<Service>, device: EventDevice,
+    fn new(log: &Logger, config: Config, service: &Arc<Service>, device: Device,
            task_queue_tx: Sender<Task>)
         -> Self
     {
@@ -214,7 +212,7 @@ impl EventHandler {
     }
 
     async fn run(&mut self) -> Result<()> {
-        let mut evdev = EventDevice::from(self.device.file().try_clone().await?);
+        let mut evdev = Device::from(self.device.file().try_clone().await?);
 
         // enable events
         let mut events = evdev.events_async()
