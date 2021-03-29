@@ -99,7 +99,7 @@ impl EventHandler {
     }
 
     fn on_latch_status(&mut self, status: LatchStatus) {
-        debug!(self.log, "latch-state changed"; "status" => ?status);
+        debug!(self.log, "latch status changed"; "status" => ?status);
 
         match status {
             LatchStatus::Opened => {
@@ -116,7 +116,7 @@ impl EventHandler {
     }
 
     fn on_base_connection(&mut self, base_state: BaseState) {
-        debug!(self.log, "clipboard connection changed"; "state" => ?base_state);
+        debug!(self.log, "base connection changed"; "state" => ?base_state);
 
         let state = *self.state.lock().unwrap();
         match (state, base_state) {
