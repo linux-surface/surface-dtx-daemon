@@ -29,7 +29,6 @@ pub struct EventHandler {
     device: Arc<Device>,
     state: Arc<Mutex<State>>,
     task_queue_tx: Sender<Task>,
-    ignore_request: u32,
 }
 
 impl EventHandler {
@@ -44,7 +43,6 @@ impl EventHandler {
             task_queue_tx,
             device: Arc::new(device),
             state: Arc::new(Mutex::new(State::Normal)),
-            ignore_request: 0,
         }
     }
 
@@ -144,11 +142,6 @@ impl EventHandler {
     }
 
     fn on_detach_request(&mut self) -> Result<()> {
-        if self.ignore_request > 0 {
-            self.ignore_request -= 1;
-            return Ok(());
-        }
-
         let state = *self.state.lock().unwrap();
         match state {
             State::Normal => {
@@ -163,8 +156,7 @@ impl EventHandler {
                 self.schedule_task_detach_abort();
             },
             State::Aborting | State::Attaching => {
-                self.ignore_request += 1;
-                self.device.latch_request().context("DTX latch request failed")?;
+                self.device.latch_cancel().context("DTX latch cancel request failed")?;
             },
         }
 
