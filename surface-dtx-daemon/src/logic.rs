@@ -139,13 +139,69 @@ impl EventHandler {
     async fn on_base_state(&mut self, state: event::BaseState) -> Result<()> {
         debug!(self.log, "base connection changed"; "state" => ?state);
 
-        todo!("handle base state events")
+        // translate state, warn and return on errors
+        let state = match state {
+            event::BaseState::Attached    => BaseState::Attached,
+            event::BaseState::Detached    => BaseState::Detached,
+            event::BaseState::NotFeasible => BaseState::NotFeasible,
+            event::BaseState::Unknown(x) => {
+                error!(self.log, "unknown base state"; "state" => x);
+                return Ok(());
+            },
+        };
+
+        // update state, return if it hasn't changed
+        if self.state.base == state {
+            return Ok(());
+        }
+
+        todo!("handle base state events");
+
+        self.state.base = state;
+
+        Ok(())
     }
 
     async fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
         debug!(self.log, "latch status changed"; "status" => ?status);
 
-        todo!("handle latch status events")
+        // translate state, warn and return on errors
+        let status = match status {
+            event::LatchStatus::Closed => LatchStatus::Closed,
+            event::LatchStatus::Opened => LatchStatus::Opened,
+            event::LatchStatus::Error(err) => {
+                error!(self.log, "latch status error"; "error" => %err);
+
+                // try to read latch status via ioctl, maybe we get an updated non-error state
+                let status = self.device.get_latch_status().context("DTX device error")?;
+                let status = match status {
+                    sdtx::LatchStatus::Closed => LatchStatus::Closed,
+                    sdtx::LatchStatus::Opened => LatchStatus::Opened,
+                    sdtx::LatchStatus::Error(_) => return Ok(()),
+                };
+
+                debug!(self.log, "latch status updated"; "status" => ?status);
+
+                // TODO: forward error to user-space via service
+
+                status
+            },
+            event::LatchStatus::Unknown(x) => {
+                error!(self.log, "unknown latch status"; "status" => x);
+                return Ok(());
+            },
+        };
+
+        // update state, return if it hasn't changed
+        if self.state.latch == status {
+            return Ok(());
+        }
+
+        todo!("handle latch status events");
+
+        self.state.latch = status;
+
+        Ok(())
     }
 
     async fn on_device_mode(&mut self, mode: event::DeviceMode) -> Result<()> {
