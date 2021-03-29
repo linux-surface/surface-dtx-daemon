@@ -86,61 +86,6 @@ impl EventHandler {
         Ok(())
     }
 
-    fn on_device_mode(&mut self, mode: DeviceMode) {
-        debug!(self.log, "device mode changed"; "mode" => ?mode);
-
-        if let DeviceMode::Unknown(mode) = mode {
-            error!(self.log, "unknown device mode"; "mode" => mode);
-            return;
-        }
-
-        let mode = sdtx::DeviceMode::try_from(mode).unwrap();
-        self.service.set_device_mode(mode);
-    }
-
-    fn on_latch_status(&mut self, status: LatchStatus) {
-        debug!(self.log, "latch status changed"; "status" => ?status);
-
-        match status {
-            LatchStatus::Opened => {
-                self.service.signal_detach_state_change(DetachState::DetachReady)
-            },
-            LatchStatus::Closed => {},
-            LatchStatus::Error(e) => {
-                warn!(self.log, "latch status error"; "error" => ?e);
-            },
-            LatchStatus::Unknown(x) => {
-                error!(self.log, "unknown latch status"; "status" => x);
-            },
-        }
-    }
-
-    fn on_base_connection(&mut self, base_state: BaseState) {
-        debug!(self.log, "base connection changed"; "state" => ?base_state);
-
-        let state = *self.state.lock().unwrap();
-        match (state, base_state) {
-            (State::Detaching, BaseState::Detached) => {
-                *self.state.lock().unwrap() = State::Normal;
-                self.service.signal_detach_state_change(DetachState::DetachCompleted);
-                debug!(self.log, "detachment procedure completed");
-            },
-            (State::Normal, BaseState::Attached) => {
-                { *self.state.lock().unwrap() = State::Attaching; }
-                self.schedule_task_attach();
-            },
-            (_, BaseState::NotFeasible) => {
-                info!(self.log, "connection changed to not feasible";
-                      "state" => ?(state, base_state));
-
-                // TODO: what to do here?
-            },
-            _ => {
-                error!(self.log, "invalid state"; "state" => ?(state, base_state));
-            },
-        }
-    }
-
     fn on_request(&mut self) -> Result<()> {
         let state = *self.state.lock().unwrap();
         match state {
@@ -174,6 +119,61 @@ impl EventHandler {
             *self.state.lock().unwrap() = State::Aborting;
             self.schedule_task_detach_abort();
         }
+    }
+
+    fn on_base_connection(&mut self, base_state: BaseState) {
+        debug!(self.log, "base connection changed"; "state" => ?base_state);
+
+        let state = *self.state.lock().unwrap();
+        match (state, base_state) {
+            (State::Detaching, BaseState::Detached) => {
+                *self.state.lock().unwrap() = State::Normal;
+                self.service.signal_detach_state_change(DetachState::DetachCompleted);
+                debug!(self.log, "detachment procedure completed");
+            },
+            (State::Normal, BaseState::Attached) => {
+                { *self.state.lock().unwrap() = State::Attaching; }
+                self.schedule_task_attach();
+            },
+            (_, BaseState::NotFeasible) => {
+                info!(self.log, "connection changed to not feasible";
+                      "state" => ?(state, base_state));
+
+                // TODO: what to do here?
+            },
+            _ => {
+                error!(self.log, "invalid state"; "state" => ?(state, base_state));
+            },
+        }
+    }
+
+    fn on_latch_status(&mut self, status: LatchStatus) {
+        debug!(self.log, "latch status changed"; "status" => ?status);
+
+        match status {
+            LatchStatus::Opened => {
+                self.service.signal_detach_state_change(DetachState::DetachReady)
+            },
+            LatchStatus::Closed => {},
+            LatchStatus::Error(e) => {
+                warn!(self.log, "latch status error"; "error" => ?e);
+            },
+            LatchStatus::Unknown(x) => {
+                error!(self.log, "unknown latch status"; "status" => x);
+            },
+        }
+    }
+
+    fn on_device_mode(&mut self, mode: DeviceMode) {
+        debug!(self.log, "device mode changed"; "mode" => ?mode);
+
+        if let DeviceMode::Unknown(mode) = mode {
+            error!(self.log, "unknown device mode"; "mode" => mode);
+            return;
+        }
+
+        let mode = sdtx::DeviceMode::try_from(mode).unwrap();
+        self.service.set_device_mode(mode);
     }
 
     fn schedule_task_attach(&mut self) {
