@@ -73,11 +73,11 @@ impl EventHandler {
         trace!(self.log, "received event"; "event" => ?evt);
 
         match evt {
-            Event::Request                      => self.on_detach_request()?,
-            Event::Cancel { reason }            => self.on_detach_error(reason),
-            Event::BaseConnection { state, .. } => self.on_connection_change(state),
-            Event::LatchStatus { status }       => self.on_latch_state_change(status),
-            Event::DeviceMode { mode }          => self.on_device_mode_change(mode),
+            Event::Request                      => self.on_request()?,
+            Event::Cancel { reason }            => self.on_cancel(reason),
+            Event::BaseConnection { state, .. } => self.on_base_connection(state),
+            Event::LatchStatus { status }       => self.on_latch_status(status),
+            Event::DeviceMode { mode }          => self.on_device_mode(mode),
             Event::Unknown { code, data } => {
                 warn!(self.log, "unhandled event"; "code" => code, "data" => ?data);
             },
@@ -86,7 +86,7 @@ impl EventHandler {
         Ok(())
     }
 
-    fn on_device_mode_change(&mut self, mode: DeviceMode) {
+    fn on_device_mode(&mut self, mode: DeviceMode) {
         debug!(self.log, "device mode changed"; "mode" => ?mode);
 
         if let DeviceMode::Unknown(mode) = mode {
@@ -98,7 +98,7 @@ impl EventHandler {
         self.service.set_device_mode(mode);
     }
 
-    fn on_latch_state_change(&mut self, status: LatchStatus) {
+    fn on_latch_status(&mut self, status: LatchStatus) {
         debug!(self.log, "latch-state changed"; "status" => ?status);
 
         match status {
@@ -115,7 +115,7 @@ impl EventHandler {
         }
     }
 
-    fn on_connection_change(&mut self, base_state: BaseState) {
+    fn on_base_connection(&mut self, base_state: BaseState) {
         debug!(self.log, "clipboard connection changed"; "state" => ?base_state);
 
         let state = *self.state.lock().unwrap();
@@ -141,7 +141,7 @@ impl EventHandler {
         }
     }
 
-    fn on_detach_request(&mut self) -> Result<()> {
+    fn on_request(&mut self) -> Result<()> {
         let state = *self.state.lock().unwrap();
         match state {
             State::Normal => {
@@ -163,7 +163,7 @@ impl EventHandler {
         Ok(())
     }
 
-    fn on_detach_error(&mut self, err: CancelReason) {
+    fn on_cancel(&mut self, err: CancelReason) {
         match err {
             CancelReason::Runtime(e)  => info!(self.log, "detachment procedure canceled: {}", e),
             CancelReason::Hardware(e) => warn!(self.log, "hardware failure, aborting detachment: {}", e),
