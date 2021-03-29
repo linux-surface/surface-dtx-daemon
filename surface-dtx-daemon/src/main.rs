@@ -101,7 +101,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     // set up D-Bus service
     let dbus_cr = Arc::new(Mutex::new(Crossroads::new()));
 
-    let serv = Service::new(&logger, &dbus_conn, control_device);
+    let serv = Service::new(logger.clone(), dbus_conn.clone(), control_device);
     serv.request_name().await?;
     serv.register(&mut dbus_cr.lock().unwrap())?;
 
@@ -120,8 +120,8 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
 
     // set up event handler
-    let mut event_handler = EventHandler::new(&logger, config, &serv, event_device, queue_tx);
-    let mut event_task = tokio::spawn(async move { event_handler.run().await }).guard();
+    let mut core = EventHandler::new(logger.clone(), config, serv.clone(), event_device, queue_tx);
+    let mut event_task = tokio::spawn(async move { core.run().await }).guard();
 
     // collect main driver tasks
     let tasks = async { tokio::select! {

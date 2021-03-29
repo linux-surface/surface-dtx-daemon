@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
-use dbus::Message;
 use dbus::channel::Sender;
 use dbus::nonblock::SyncConnection;
 use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
@@ -14,26 +13,6 @@ use sdtx_tokio::Device;
 use slog::{debug, Logger};
 
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum DetachState {
-    DetachReady,
-    DetachCompleted,
-    DetachAborted,
-    AttachCompleted,
-}
-
-impl DetachState {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::DetachReady     => "detach-ready",
-            Self::DetachCompleted => "detach-completed",
-            Self::DetachAborted   => "detach-aborted",
-            Self::AttachCompleted => "attach-completed",
-        }
-    }
-}
-
-
 pub struct Service {
     log: Logger,
     conn: Arc<SyncConnection>,
@@ -42,10 +21,10 @@ pub struct Service {
 }
 
 impl Service {
-    pub fn new(log: &Logger, conn: &Arc<SyncConnection>, device: Device) -> Arc<Self> {
+    pub fn new(log: Logger, conn: Arc<SyncConnection>, device: Device) -> Arc<Self> {
         let service = Service {
-            log: log.clone(),
-            conn: conn.clone(),
+            log,
+            conn,
             device,
             mode: Mutex::new(DeviceMode::Laptop),
         };
@@ -61,10 +40,6 @@ impl Service {
 
     pub fn register(self: &Arc<Self>, cr: &mut Crossroads) -> Result<()> {
         let iface_token = cr.register("org.surface.dtx", |b: &mut IfaceBuilder<Arc<Service>>| {
-            // detach-state signal
-            // TODO: replace with property ?
-            b.signal::<(String,), _>("DetachStateChanged", ("state",));
-
             // device-mode property
             b.property("DeviceMode")
                 .emits_changed_true()
@@ -116,17 +91,5 @@ impl Service {
             // send will only fail due to lack of memory
             self.conn.send(msg).unwrap();
         }
-    }
-
-    pub fn signal_detach_state_change(&self, state: DetachState) {
-        let msg = Message::new_signal("/org/surface/dtx", "org.surface.dtx", "DetachStateChanged")
-                .unwrap()       // out of memory
-                .append1(state.as_str());
-
-        debug!(self.log, "service: sending detach-state-change signal";
-               "value" => state.as_str());
-
-        // send will only fail due to lack of memory
-        self.conn.send(msg).unwrap();
     }
 }

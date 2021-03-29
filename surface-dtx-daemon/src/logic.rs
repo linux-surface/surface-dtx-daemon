@@ -1,48 +1,75 @@
+#![allow(unused)]
+
 use crate::Task;
 use crate::config::Config;
-use crate::service::{DetachState, Service};
+use crate::service::Service;
 
 use std::convert::TryFrom;
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 
 use futures::prelude::*;
 
-use sdtx::Event;
-use sdtx::event::{BaseState, CancelReason, DeviceMode, LatchStatus};
+use sdtx::{BaseState, DeviceMode, Event, event};
 use sdtx_tokio::Device;
 
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::{debug, error, trace, warn, Logger};
 
-use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeState {
+    Ready,
+    _TODO,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LatchStatus {
+    Closed,
+    Opened,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct State {
+    base: BaseState,
+    latch: LatchStatus,
+    rt: RuntimeState,
+}
+
+impl State {
+    fn init() -> Self {
+        State {
+            base: BaseState::Attached,
+            latch: LatchStatus::Closed,
+            rt: RuntimeState::Ready,
+        }
+    }
+}
 
 
 pub struct EventHandler {
     log: Logger,
     config: Config,
+    device: Device,
     service: Arc<Service>,
-    device: Arc<Device>,
-    state: Arc<Mutex<State>>,
     task_queue_tx: Sender<Task>,
+    state: State,
 }
 
 impl EventHandler {
-    pub fn new(log: &Logger, config: Config, service: &Arc<Service>, device: Device,
+    pub fn new(log: Logger, config: Config, service: Arc<Service>, device: Device,
                task_queue_tx: Sender<Task>)
         -> Self
     {
         EventHandler {
-            log: log.clone(),
+            log,
             config,
-            service: service.clone(),
+            device,
+            service,
             task_queue_tx,
-            device: Arc::new(device),
-            state: Arc::new(Mutex::new(State::Normal)),
+            state: State::init(),
         }
     }
 
@@ -56,28 +83,39 @@ impl EventHandler {
         // Update our state before we start handling events but after we've
         // enabled them. This way, we can ensure that we don't miss any
         // events/changes and accidentally set a stale state.
-        let mode = self.device.get_device_mode()
-            .context("DTX device error")?;
+        let base = self.device.get_base_info().context("DTX device error")?.state;
+        let latch = self.device.get_latch_status().context("DTX device error")?;
+        let mode = self.device.get_device_mode().context("DTX device error")?;
+
+        let latch = match latch {
+            sdtx::LatchStatus::Closed => LatchStatus::Closed,
+            sdtx::LatchStatus::Opened => LatchStatus::Opened,
+            sdtx::LatchStatus::Error(err) => Err(err).context("DTX hardware error")?,
+        };
+
+        self.state.base = base;
+        self.state.latch = latch;
+        self.state.rt = RuntimeState::Ready;
 
         self.service.set_device_mode(mode);
 
         // handle events
         while let Some(evt) = events.next().await {
-            self.handle(evt.context("DTX device error")?)?;
+            self.handle(evt.context("DTX device error")?).await?;
         }
 
         Ok(())
     }
 
-    pub fn handle(&mut self, evt: Event) -> Result<()> {
+    pub async fn handle(&mut self, evt: Event) -> Result<()> {
         trace!(self.log, "received event"; "event" => ?evt);
 
         match evt {
-            Event::Request                      => self.on_request()?,
-            Event::Cancel { reason }            => self.on_cancel(reason),
-            Event::BaseConnection { state, .. } => self.on_base_connection(state),
-            Event::LatchStatus { status }       => self.on_latch_status(status),
-            Event::DeviceMode { mode }          => self.on_device_mode(mode),
+            Event::Request                      => self.on_request().await?,
+            Event::Cancel { reason }            => self.on_cancel(reason).await?,
+            Event::BaseConnection { state, .. } => self.on_base_state(state).await?,
+            Event::LatchStatus { status }       => self.on_latch_status(status).await?,
+            Event::DeviceMode { mode }          => self.on_device_mode(mode).await?,
             Event::Unknown { code, data } => {
                 warn!(self.log, "unhandled event"; "code" => code, "data" => ?data);
             },
@@ -86,242 +124,41 @@ impl EventHandler {
         Ok(())
     }
 
-    fn on_request(&mut self) -> Result<()> {
-        let state = *self.state.lock().unwrap();
-        match state {
-            State::Normal => {
-                debug!(self.log, "clipboard detach requested");
-                *self.state.lock().unwrap() = State::Detaching;
-                self.schedule_task_detach();
-            },
-            State::Detaching => {
-                debug!(self.log, "clipboard detach-abort requested");
-                *self.state.lock().unwrap() = State::Aborting;
-                self.service.signal_detach_state_change(DetachState::DetachAborted);
-                self.schedule_task_detach_abort();
-            },
-            State::Aborting | State::Attaching => {
-                self.device.latch_cancel().context("DTX latch cancel request failed")?;
-            },
-        }
+    async fn on_request(&mut self) -> Result<()> {
+        debug!(self.log, "request received");
 
-        Ok(())
+        todo!("handle request events")
     }
 
-    fn on_cancel(&mut self, err: CancelReason) {
-        match err {
-            CancelReason::Runtime(e)  => info!(self.log, "detachment procedure canceled: {}", e),
-            CancelReason::Hardware(e) => warn!(self.log, "hardware failure, aborting detachment: {}", e),
-            CancelReason::Unknown(x)  => error!(self.log, "unknown failure, aborting detachment: {}", x),
-        }
+    async fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
+        debug!(self.log, "cancel event received"; "reason" => ?reason);
 
-        if *self.state.lock().unwrap() == State::Detaching {
-            *self.state.lock().unwrap() = State::Aborting;
-            self.schedule_task_detach_abort();
-        }
+        todo!("handle cancel events")
     }
 
-    fn on_base_connection(&mut self, base_state: BaseState) {
-        debug!(self.log, "base connection changed"; "state" => ?base_state);
+    async fn on_base_state(&mut self, state: event::BaseState) -> Result<()> {
+        debug!(self.log, "base connection changed"; "state" => ?state);
 
-        let state = *self.state.lock().unwrap();
-        match (state, base_state) {
-            (State::Detaching, BaseState::Detached) => {
-                *self.state.lock().unwrap() = State::Normal;
-                self.service.signal_detach_state_change(DetachState::DetachCompleted);
-                debug!(self.log, "detachment procedure completed");
-            },
-            (State::Normal, BaseState::Attached) => {
-                { *self.state.lock().unwrap() = State::Attaching; }
-                self.schedule_task_attach();
-            },
-            (_, BaseState::NotFeasible) => {
-                info!(self.log, "connection changed to not feasible";
-                      "state" => ?(state, base_state));
-
-                // TODO: what to do here?
-            },
-            _ => {
-                error!(self.log, "invalid state"; "state" => ?(state, base_state));
-            },
-        }
+        todo!("handle base state events")
     }
 
-    fn on_latch_status(&mut self, status: LatchStatus) {
+    async fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
         debug!(self.log, "latch status changed"; "status" => ?status);
 
-        match status {
-            LatchStatus::Opened => {
-                self.service.signal_detach_state_change(DetachState::DetachReady)
-            },
-            LatchStatus::Closed => {},
-            LatchStatus::Error(e) => {
-                warn!(self.log, "latch status error"; "error" => ?e);
-            },
-            LatchStatus::Unknown(x) => {
-                error!(self.log, "unknown latch status"; "status" => x);
-            },
-        }
+        todo!("handle latch status events")
     }
 
-    fn on_device_mode(&mut self, mode: DeviceMode) {
+    async fn on_device_mode(&mut self, mode: event::DeviceMode) -> Result<()> {
         debug!(self.log, "device mode changed"; "mode" => ?mode);
 
-        if let DeviceMode::Unknown(mode) = mode {
+        if let event::DeviceMode::Unknown(mode) = mode {
             error!(self.log, "unknown device mode"; "mode" => mode);
-            return;
+            return Ok(());
         }
 
-        let mode = sdtx::DeviceMode::try_from(mode).unwrap();
+        let mode = DeviceMode::try_from(mode).unwrap();
         self.service.set_device_mode(mode);
-    }
 
-    fn schedule_task_attach(&mut self) {
-        let log = self.log.clone();
-        let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
-        let handler = self.config.handler.attach.clone();
-        let dir = self.config.dir.clone();
-        let state = self.state.clone();
-        let service = self.service.clone();
-
-        let task = async move {
-            debug!(log, "subprocess: delaying attach process");
-            tokio::time::sleep(delay).await;
-
-            if let Some(path) = handler {
-                debug!(log, "subprocess: attach started, executing '{}'", path.display());
-
-                let output = Command::new(path)
-                    .current_dir(dir)
-                    .output().await
-                    .context("Subprocess error (attach)")?;
-
-                log_process_output(&log, &output);
-                debug!(log, "subprocess: attach finished");
-
-            } else {
-                debug!(log, "subprocess: no attach handler executable");
-            }
-
-            *state.lock().unwrap() = State::Normal;
-            service.signal_detach_state_change(DetachState::AttachCompleted);
-
-            Ok(())
-        };
-
-        self.schedule_process_task(Box::pin(task));
-    }
-
-    fn schedule_task_detach(&mut self) {
-        let log = self.log.clone();
-        let handler = self.config.handler.detach.clone();
-        let dir = self.config.dir.clone();
-        let state = self.state.clone();
-        let device = self.device.clone();
-
-        let task = async move {
-            if let Some(ref path) = handler {
-                debug!(log, "subprocess: detach started");
-
-                let output = Command::new(path)
-                    .current_dir(dir)
-                    .env("EXIT_DETACH_COMMENCE", "0")
-                    .env("EXIT_DETACH_ABORT", "1")
-                    .output().await
-                    .context("Subprocess error (detach)")?;
-
-                log_process_output(&log, &output);
-                debug!(log, "subprocess: detach finished");
-
-                if *state.lock().unwrap() == State::Detaching {
-                    if output.status.success() {
-                        debug!(log, "commencing detach, opening latch");
-                        device.latch_confirm().context("DTX latch confirmation failed")?;
-                    } else {
-                        info!(log, "aborting detach");
-                        device.latch_cancel().context("DTX latch cancel request failed")?;
-                    }
-                } else {
-                    debug!(log, "state changed during detachment, not opening latch");
-                }
-
-            } else {
-                debug!(log, "subprocess: no detach handler executable");
-
-                if *state.lock().unwrap() == State::Detaching {
-                    debug!(log, "commencing detach, opening latch");
-                    device.latch_confirm().context("DTX latch confirmation failed")?;
-                } else {
-                    debug!(log, "state changed during detachment, not opening latch");
-                }
-            }
-
-            Ok(())
-        };
-
-        self.schedule_process_task(Box::pin(task));
-    }
-
-    fn schedule_task_detach_abort(&mut self) {
-        let log = self.log.clone();
-        let handler = self.config.handler.detach_abort.clone();
-        let dir = self.config.dir.clone();
-        let state = self.state.clone();
-
-        let task = async move {
-            if let Some(ref path) = handler {
-                debug!(log, "subprocess: detach_abort started");
-
-                let output = Command::new(path)
-                    .current_dir(dir)
-                    .output().await
-                    .context("Subprocess error (detach_abort)")?;
-
-                log_process_output(&log, &output);
-                debug!(log, "subprocess: detach_abort finished");
-
-            } else {
-                debug!(log, "subprocess: no detach_abort handler executable");
-            }
-
-            *state.lock().unwrap() = State::Normal;
-            Ok(())
-        };
-
-        self.schedule_process_task(Box::pin(task));
-    }
-
-    fn schedule_process_task(&mut self, task: Task) {
-        use tokio::sync::mpsc::error::TrySendError;
-
-        match self.task_queue_tx.try_send(task) {
-            Err(TrySendError::Full(_)) => {
-                warn!(self.log, "process queue is full, dropping task");
-            },
-            Err(TrySendError::Closed(_)) => {
-                unreachable!("process queue closed");
-            },
-            Ok(_) => {},
-        }
-    }
-}
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum State { Normal, Detaching, Aborting, Attaching }
-
-fn log_process_output(log: &Logger, output: &std::process::Output) {
-    if !output.status.success() || !output.stdout.is_empty() || !output.stderr.is_empty() {
-        info!(log, "subprocess terminated with {}", output.status);
-    }
-
-    if !output.stdout.is_empty() {
-        let stdout = OsStr::from_bytes(&output.stdout);
-        info!(log, "subprocess terminated with stdout: {:?}", stdout);
-    }
-
-    if !output.stderr.is_empty() {
-        let stderr = OsStr::from_bytes(&output.stderr);
-        info!(log, "subprocess terminated with stderr: {:?}", stderr);
+        Ok(())
     }
 }
