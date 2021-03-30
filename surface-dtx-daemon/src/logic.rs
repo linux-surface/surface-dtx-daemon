@@ -162,7 +162,13 @@ impl EventHandler {
             return Ok(());
         }
 
-        todo!("handle request events")
+        // if any subprocess is running (attach/abort), cancel the (new) request
+        if todo!("check if any subprocess is running") {
+            self.device.latch_cancel().context("DTX device error")?;
+            return Ok(());
+        }
+
+        todo!("schedule new detachment process")
     }
 
     async fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
