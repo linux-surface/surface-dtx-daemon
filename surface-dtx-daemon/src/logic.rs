@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 
 use futures::prelude::*;
 
-use sdtx::{BaseState, DeviceMode, Event, event};
+use sdtx::{BaseState, DeviceMode, Event, event, HardwareError};
 use sdtx_tokio::Device;
 
 use slog::{debug, error, trace, warn, Logger};
@@ -172,12 +172,16 @@ impl EventHandler {
             event::LatchStatus::Error(err) => {
                 error!(self.log, "latch status error"; "error" => %err);
 
-                // try to read latch status via ioctl, maybe we get an updated non-error state
+                // try to read latch status via ioctl, maybe we get an updated non-error state;
+                // otherwise try to infer actual state
                 let status = self.device.get_latch_status().context("DTX device error")?;
                 let status = match status {
-                    sdtx::LatchStatus::Closed => LatchStatus::Closed,
-                    sdtx::LatchStatus::Opened => LatchStatus::Opened,
-                    sdtx::LatchStatus::Error(_) => return Ok(()),
+                    sdtx::LatchStatus::Closed                                   => LatchStatus::Closed,
+                    sdtx::LatchStatus::Opened                                   => LatchStatus::Opened,
+                    sdtx::LatchStatus::Error(HardwareError::FailedToOpen)       => LatchStatus::Closed,
+                    sdtx::LatchStatus::Error(HardwareError::FailedToRemainOpen) => LatchStatus::Closed,
+                    sdtx::LatchStatus::Error(HardwareError::FailedToClose)      => LatchStatus::Opened,
+                    sdtx::LatchStatus::Error(HardwareError::Unknown(_))         => return Ok(()),
                 };
 
                 debug!(self.log, "latch status updated"; "status" => ?status);
