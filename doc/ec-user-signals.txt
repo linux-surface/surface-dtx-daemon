@@ -1,0 +1,42 @@
+CURRENT STATE                   SIGNAL          NEXT STATE                      EVENTS/EFFECT
+
+connected-closed                request         connected-closed-waiting        request event
+connected-closed                cancel          connected-closed                no event
+connected-closed                confirm         connected-closed                no event
+connected-closed                heartbeat       connected-closed                no event
+
+connected-closed-waiting        request         connected-closed                request event
+connected-closed-waiting        cancel          connected-closed                request event
+connected-closed-waiting        confirm         connected-opened                opened event
+connected-closed-waiting        heartbeat       connected-closed-waiting        no event, timeout is reset
+
+connected-opened                request         connected-opened-pending        request event
+connected-opened                cancel          connected-opened-pending        request event
+connected-opened                confirm         connected-opened                no event
+connected-opened                heartbeat       connected-opened                no event
+
+connected-opened-pending        request         connected-opened-pending        no event
+connected-opened-pending        cancel          connected-opened-pending        no event
+connected-opened-pending        confirm         connected-opened-pending        no event
+connected-opened-pending        heartbeat       connected-opened-pending        no event
+
+
+disconnected-closed             request         disconnected-closed-waiting     request event
+disconnected-closed             cancel          disconnected-closed             no event
+disconnected-closed             confirm         disconnected-closed             no event
+disconnected-closed             heartbeat       disconnected-closed             no event
+
+disconnected-closed-waiting     request         disconnected-closed             request event
+disconnected-closed-waiting     cancel          disconnected-closed             request event
+disconnected-closed-waiting     confirm         disconnected-opened             opened event
+disconnected-closed-waiting     heartbeat       disconnected-closed-waiting     no event, timeout is reset
+
+disconnected-opened             request         disconnected-opened-pending     request event
+disconnected-opened             cancel          disconnected-opened-pending     request event
+disconnected-opened             confirm         disconnected-opened             no event
+disconnected-opened             heartbeat       disconnected-opened             no event
+
+disconnected-opened-pending     request         disconnected-opened-pending     no event
+disconnected-opened-pending     cancel          disconnected-opened-pending     no event
+disconnected-opened-pending     confirm         disconnected-opened-pending     no event
+disconnected-opened-pending     heartbeat       disconnected-opened-pending     no event
