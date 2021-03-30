@@ -201,12 +201,18 @@ impl EventHandler {
         if self.state.base == state {
             return Ok(());
         }
+        let old = std::mem::replace(&mut self.state.base, state);
 
-        todo!("handle base state events");
-
-        self.state.base = state;
-
-        Ok(())
+        // handle actual transition
+        match (old, state) {
+            (_, BaseState::Detached) => {
+                todo!("handle base disconnect")
+            },
+            (BaseState::Detached, _) => {
+                todo!("handle base connect")
+            },
+            (_, _) => Ok(()),
+        }
     }
 
     async fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
