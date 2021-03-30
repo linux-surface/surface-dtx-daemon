@@ -26,6 +26,12 @@ enum RuntimeState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EcState {
+    Ready,
+    InProgress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LatchStatus {
     Closed,
     Opened,
@@ -36,6 +42,7 @@ struct State {
     base: BaseState,
     latch: LatchStatus,
     rt: RuntimeState,
+    ec: EcState,
 }
 
 impl State {
@@ -44,6 +51,7 @@ impl State {
             base: BaseState::Attached,
             latch: LatchStatus::Closed,
             rt: RuntimeState::Ready,
+            ec: EcState::Ready,
         }
     }
 }
@@ -93,9 +101,15 @@ impl EventHandler {
             sdtx::LatchStatus::Error(err) => Err(err).context("DTX hardware error")?,
         };
 
+        let ec = match latch {
+            LatchStatus::Closed => EcState::Ready,
+            LatchStatus::Opened => EcState::InProgress,
+        };
+
         self.state.base = base;
         self.state.latch = latch;
         self.state.rt = RuntimeState::Ready;
+        self.state.ec = ec;
 
         self.service.set_device_mode(mode);
 
@@ -127,11 +141,24 @@ impl EventHandler {
     async fn on_request(&mut self) -> Result<()> {
         debug!(self.log, "request received");
 
+        // handle cancellation signals
+        if self.state.ec == EcState::InProgress {
+            self.state.ec = EcState::Ready;
+
+            return todo!("cancel any in-progress requests");
+        }
+
+        // if this request is not for cancellation, mark us as in-progress
+        self.state.ec = EcState::InProgress;
+
         todo!("handle request events")
     }
 
     async fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
         debug!(self.log, "cancel event received"; "reason" => ?reason);
+
+        // reset EC state
+        self.state.ec = EcState::Ready;
 
         todo!("handle cancel events")
     }
@@ -195,6 +222,11 @@ impl EventHandler {
                 return Ok(());
             },
         };
+
+        // reset EC state if closed
+        if status == LatchStatus::Closed {
+            self.state.ec = EcState::Ready;
+        }
 
         // update state, return if it hasn't changed
         if self.state.latch == status {
