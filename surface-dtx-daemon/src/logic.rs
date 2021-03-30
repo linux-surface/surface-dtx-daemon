@@ -145,7 +145,7 @@ impl EventHandler {
         if self.state.ec == EcState::InProgress {
             self.state.ec = EcState::Ready;
 
-            return todo!("cancel any in-progress requests");
+            return self.detachment_abort().await;
         }
 
         // if this request is not for cancellation, mark us as in-progress
@@ -168,7 +168,7 @@ impl EventHandler {
             return Ok(());
         }
 
-        todo!("schedule new detachment process")
+        self.detachment_start().await
     }
 
     async fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
@@ -177,10 +177,9 @@ impl EventHandler {
         // reset EC state
         self.state.ec = EcState::Ready;
 
-        todo!("cancel any in-progress requests");
         // TODO: warn users via service
 
-        Ok(())
+        self.detachment_abort().await
     }
 
     async fn on_base_state(&mut self, state: event::BaseState) -> Result<()> {
@@ -205,14 +204,18 @@ impl EventHandler {
 
         // handle actual transition
         match (old, state) {
-            (_, BaseState::Detached) => {
-                todo!("handle base disconnect")
-            },
-            (BaseState::Detached, _) => {
-                todo!("handle base connect")
-            },
+            (_, BaseState::Detached) => self.on_base_disconnected().await,
+            (BaseState::Detached, _) => self.on_base_connected().await,
             (_, _) => Ok(()),
         }
+    }
+
+    async fn on_base_disconnected(&mut self) -> Result<()> {
+        todo!("handle base disconnect")
+    }
+
+    async fn on_base_connected(&mut self) -> Result<()> {
+        todo!("handle base connect")
     }
 
     async fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
@@ -262,13 +265,17 @@ impl EventHandler {
 
         // handle actual transition
         match status {
-            LatchStatus::Closed => {
-                todo!("handle latch closed")
-            },
-            LatchStatus::Opened => {
-                todo!("handle latch opened")
-            },
+            LatchStatus::Opened => self.on_latch_opened().await,
+            LatchStatus::Closed => self.on_latch_closed().await,
         }
+    }
+
+    async fn on_latch_opened(&mut self) -> Result<()> {
+        todo!("handle latch opened")
+    }
+
+    async fn on_latch_closed(&mut self) -> Result<()> {
+        todo!("handle latch closed")
     }
 
     async fn on_device_mode(&mut self, mode: event::DeviceMode) -> Result<()> {
@@ -283,5 +290,13 @@ impl EventHandler {
         self.service.set_device_mode(mode);
 
         Ok(())
+    }
+
+    async fn detachment_start(&mut self) -> Result<()> {
+        todo!("schedule new detachment process")
+    }
+
+    async fn detachment_abort(&mut self) -> Result<()> {
+        todo!("abort any in-progress detachment process")
     }
 }
