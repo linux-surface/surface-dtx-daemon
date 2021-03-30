@@ -258,12 +258,17 @@ impl EventHandler {
         if self.state.latch == status {
             return Ok(());
         }
-
-        todo!("handle latch status events");
-
         self.state.latch = status;
 
-        Ok(())
+        // handle actual transition
+        match status {
+            LatchStatus::Closed => {
+                todo!("handle latch closed")
+            },
+            LatchStatus::Opened => {
+                todo!("handle latch opened")
+            },
+        }
     }
 
     async fn on_device_mode(&mut self, mode: event::DeviceMode) -> Result<()> {
