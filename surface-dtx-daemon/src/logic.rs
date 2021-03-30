@@ -151,6 +151,17 @@ impl EventHandler {
         // if this request is not for cancellation, mark us as in-progress
         self.state.ec = EcState::InProgress;
 
+        // if no base is attached (or not-feasible), cancel
+        if self.state.base != BaseState::Attached {
+            self.device.latch_cancel().context("DTX device error")?;
+
+            if self.state.base == BaseState::NotFeasible {
+                // TODO: warn users via service
+            }
+
+            return Ok(());
+        }
+
         todo!("handle request events")
     }
 
