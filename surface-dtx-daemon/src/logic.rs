@@ -177,7 +177,10 @@ impl EventHandler {
         // reset EC state
         self.state.ec = EcState::Ready;
 
-        todo!("handle cancel events")
+        todo!("cancel any in-progress requests");
+        // TODO: warn users via service
+
+        Ok(())
     }
 
     async fn on_base_state(&mut self, state: event::BaseState) -> Result<()> {
