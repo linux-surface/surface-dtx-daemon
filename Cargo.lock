@@ -433,19 +433,20 @@ checksum = "71d301d4193d031abdd79ff7e3dd721168a9572ef3fe51a1517aba235bd8f86e"
 
 [[package]]
 name = "sdtx"
-version = "0.1.0"
-source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.1#e14e43b19532ac13f92e57a7afaf8c5fd9b55a17"
+version = "0.1.2"
+source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.2#c9d323031b41577b9f62f34e410c79d631bc05a6"
 dependencies = [
  "futures",
  "nix",
  "smallvec",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
 name = "sdtx-tokio"
-version = "0.1.0"
-source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.1#e14e43b19532ac13f92e57a7afaf8c5fd9b55a17"
+version = "0.1.2"
+source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.2#c9d323031b41577b9f62f34e410c79d631bc05a6"
 dependencies = [
  "futures",
  "sdtx",
