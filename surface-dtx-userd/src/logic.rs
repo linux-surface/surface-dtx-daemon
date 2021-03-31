@@ -13,7 +13,7 @@ use dbus_tokio::connection;
 
 use futures::prelude::*;
 
-use tracing::debug;
+use tracing::{debug, trace};
 
 
 pub async fn run() -> Result<()> {
@@ -150,17 +150,19 @@ impl Core {
             .show(&self.session).await
             .context("Failed to display notification")?;
 
-        debug!(id = ?handle.id, "notification added");
+        trace!(target: "surface_dtx_userd::notify", id = handle.id, ty = "detach-ready",
+               "displaying notification");
 
         self.detach_notif = Some(handle);
         Ok(())
     }
 
     async fn notify_detach_completed(&mut self) -> Result<()> {
-        if let Some(notif) = self.detach_notif {
-            debug!(id = ?notif.id, "notification closed");
+        if let Some(handle) = self.detach_notif {
+            trace!(target: "surface_dtx_userd::notify", id = handle.id, ty = "detach-ready",
+                   "closing notification");
 
-            notif.close(&self.session).await
+            handle.close(&self.session).await
                 .context("Failed to close notification")?;
         }
 
@@ -168,7 +170,7 @@ impl Core {
     }
 
     async fn notify_attach_completed(&self) -> Result<()> {
-        Notification::create("Surface DTX")
+        let handle = Notification::create("Surface DTX")
             .summary("Surface DTX")
             .body("Clipboard attached.")
             .hint_s("image-path", "input-tablet")
@@ -177,6 +179,9 @@ impl Core {
             .build()
             .show(&self.session).await
             .context("Failed to display notification")?;
+
+        trace!(target: "surface_dtx_userd::notify", id = handle.id, ty = "attach-complete",
+               "displaying notification");
 
         Ok(())
     }
