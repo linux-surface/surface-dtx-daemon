@@ -90,6 +90,17 @@ impl FromStr for Status {
     }
 }
 
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Status::DetachReady     => write!(f, "detach-ready"),
+            Status::DetachCompleted => write!(f, "detach-completed"),
+            Status::DetachAborted   => write!(f, "detach-aborted"),
+            Status::AttachCompleted => write!(f, "attach-completed"),
+        }
+    }
+}
+
 
 #[derive(Clone)]
 struct Core {
@@ -126,7 +137,7 @@ impl Core {
             .parse()
             .context("Protocol error")?;
 
-        debug!(status = ?status, "detach-state changed");
+        debug!(status = %status, "detach-state changed");
 
         // handle status notification
         match status {
