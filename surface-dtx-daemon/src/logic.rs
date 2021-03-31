@@ -220,7 +220,13 @@ impl EventHandler {
     }
 
     async fn on_base_connected(&mut self) -> Result<()> {
-        todo!("handle base connect")
+        // if latch is closed, start attachment process, otherwise wait for
+        // latch to close before starting that
+
+        match self.state.latch {
+            LatchStatus::Closed => self.attachment_start().await,
+            LatchStatus::Opened => Ok(()),
+        }
     }
 
     async fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
@@ -280,7 +286,15 @@ impl EventHandler {
     }
 
     async fn on_latch_closed(&mut self) -> Result<()> {
-        todo!("handle latch closed")
+        // TODO: notify users
+
+        if self.state.base == BaseState::Detached {
+            Ok(())      // nothing to do if base is detached
+        } else if todo!("if base has not been detached during this process") {
+            self.detachment_abort().await
+        } else {
+            self.attachment_start().await
+        }
     }
 
     async fn on_device_mode(&mut self, mode: event::DeviceMode) -> Result<()> {
@@ -303,5 +317,9 @@ impl EventHandler {
 
     async fn detachment_abort(&mut self) -> Result<()> {
         todo!("abort any in-progress detachment process")
+    }
+
+    async fn attachment_start(&mut self) -> Result<()> {
+        todo!("schedule new attachment process")
     }
 }
