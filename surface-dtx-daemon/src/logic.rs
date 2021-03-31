@@ -43,6 +43,7 @@ struct State {
     latch: LatchStatus,
     rt: RuntimeState,
     ec: EcState,
+    needs_attachment: bool,
 }
 
 impl State {
@@ -52,6 +53,7 @@ impl State {
             latch: LatchStatus::Closed,
             rt: RuntimeState::Ready,
             ec: EcState::Ready,
+            needs_attachment: false,
         }
     }
 }
@@ -216,7 +218,7 @@ impl EventHandler {
     }
 
     async fn on_base_disconnected(&mut self) -> Result<()> {
-        todo!("handle base disconnect")
+        Ok(())          // TODO: notify users?
     }
 
     async fn on_base_connected(&mut self) -> Result<()> {
@@ -224,8 +226,14 @@ impl EventHandler {
         // latch to close before starting that
 
         match self.state.latch {
-            LatchStatus::Closed => self.attachment_start().await,
-            LatchStatus::Opened => Ok(()),
+            LatchStatus::Closed => {
+                self.state.needs_attachment = false;
+                self.attachment_start().await
+            },
+            LatchStatus::Opened => {
+                self.state.needs_attachment = true;
+                Ok(())
+            },
         }
     }
 
@@ -290,10 +298,11 @@ impl EventHandler {
 
         if self.state.base == BaseState::Detached {
             Ok(())      // nothing to do if base is detached
-        } else if todo!("if base has not been detached during this process") {
-            self.detachment_abort().await
-        } else {
+        } else if self.state.needs_attachment {
+            self.state.needs_attachment = false;
             self.attachment_start().await
+        } else {
+            self.detachment_abort().await
         }
     }
 
