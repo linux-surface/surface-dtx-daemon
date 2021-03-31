@@ -120,7 +120,7 @@ impl Core {
         let m = message.as_result()
             .context("D-Bus remote error")?;
 
-        debug!(msg = ?m, "message received");
+        trace!(msg = ?m, "message received");
 
         // ignore any message that is not intended for us
         if m.interface() != Some("org.surface.dtx".into()) {
