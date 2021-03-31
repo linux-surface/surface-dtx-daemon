@@ -26,33 +26,16 @@ use dbus_crossroads::Crossroads;
 
 use futures::prelude::*;
 
-use slog::{crit, debug, info, o, warn, Logger};
-
 use tokio::signal::unix::{signal, SignalKind};
+
+use tracing::{error, info, warn};
 
 
 type Task = tq::Task<Error>;
 
 
-fn build_logger(config: &Config) -> Logger {
-    use slog::Drain;
 
-    let decorator = slog_term::TermDecorator::new()
-        .build();
-
-    let drain = slog_term::FullFormat::new(decorator)
-        .use_original_order()
-        .build()
-        .filter_level(config.log.level.into())
-        .fuse();
-
-    let drain = std::sync::Mutex::new(drain)
-        .fuse();
-
-    Logger::root(drain, o!())
-}
-
-fn bootstrap() -> Result<(Logger, Config)> {
+fn bootstrap() -> Result<Config> {
     // handle command line input
     let matches = cli::app().get_matches();
 
@@ -63,17 +46,29 @@ fn bootstrap() -> Result<(Logger, Config)> {
     };
 
     // set up logger
-    let logger = build_logger(&config);
+    let ansi = atty::is(atty::Stream::Stdout);
+
+    let filter = tracing_subscriber::EnvFilter::from_env("SDTX_USERD_LOG")
+        .add_directive(tracing::Level::from(config.log.level).into());
+
+    let fmt = tracing_subscriber::fmt::format::PrettyFields::new()
+        .with_ansi(ansi);
+
+    tracing_subscriber::fmt()
+        .fmt_fields(fmt)
+        .with_env_filter(filter)
+        .with_ansi(atty::is(atty::Stream::Stdout))
+        .init();
 
     // warn about unknown config items
-    for item in diag.unknowns {
-        warn!(logger, "Unknown config item"; "item" => item, "file" => ?diag.path)
-    }
+    diag.log();
 
-    Ok((logger, config))
+    Ok(config)
 }
 
-async fn run(logger: Logger, config: Config) -> Result<()> {
+async fn run() -> Result<()> {
+    let config = bootstrap()?;
+
     // set up signal handling
     let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
     let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
@@ -100,7 +95,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     // set up D-Bus service
     let dbus_cr = Arc::new(Mutex::new(Crossroads::new()));
 
-    let serv = Service::new(logger.clone(), dbus_conn.clone(), control_device);
+    let serv = Service::new(dbus_conn.clone(), control_device);
     serv.request_name().await?;
     serv.register(&mut dbus_cr.lock().unwrap())?;
 
@@ -119,7 +114,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
 
     // set up event handler
-    let mut core = EventHandler::new(logger.clone(), config, serv.clone(), event_device, queue_tx);
+    let mut core = EventHandler::new(config, serv.clone(), event_device, queue_tx);
     let mut event_task = tokio::spawn(async move { core.run().await }).guard();
 
     // collect main driver tasks
@@ -129,14 +124,12 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         result = &mut queue_task => result,
     }};
 
-    debug!(logger, "running...");
-
     // run until whatever comes first: error, panic, or shutdown signal
     tokio::select! {
         signame = sig => {
             // first shutdown signal: try to do a clean shutdown and complete
             // the task queue
-            info!(logger, "received {}, shutting down...", signame);
+            info!("received {}, shutting down...", signame);
 
             // stop event task: don't handle any new DTX events and drop task
             // queue transmitter to eventually cause the task queue task to
@@ -159,7 +152,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
             // second signal received
             tokio::select! {
                 (signame, tval) = sig => {
-                    warn!(logger, "received {} during shutdown, terminating...", signame);
+                    warn!("received {} during shutdown, terminating...", signame);
                     std::process::exit(128 + tval)
                 },
                 result = queue_task => match result {
@@ -179,13 +172,10 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    // no logger so we can't log errors here
-    let (logger, config) = bootstrap()?;
-
     // run main function and log critical errors
-    let result = run(logger.clone(), config).await;
+    let result = run().await;
     if let Err(ref err) = result {
-        crit!(logger, "Critical error: {}\n", err);
+        error!("critical error: {}\n", err);
     }
 
     // for some reason tokio won't properly shut down, even though every task

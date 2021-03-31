@@ -15,9 +15,9 @@ use futures::prelude::*;
 use sdtx::{BaseState, DeviceMode, Event, event, HardwareError};
 use sdtx_tokio::Device;
 
-use slog::{debug, error, info, trace, warn, Logger};
-
 use tokio::sync::mpsc::Sender;
+
+use tracing::{debug, error, info, trace, warn};
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +63,6 @@ impl State {
 
 
 pub struct EventHandler {
-    log: Logger,
     config: Config,
     device: Arc<Device>,
     service: Arc<Service>,
@@ -72,12 +71,11 @@ pub struct EventHandler {
 }
 
 impl EventHandler {
-    pub fn new(log: Logger, config: Config, service: Arc<Service>, device: Device,
+    pub fn new(config: Config, service: Arc<Service>, device: Device,
                task_queue_tx: TaskSender<Error>)
         -> Self
     {
         EventHandler {
-            log,
             config,
             device: Arc::new(device),
             service,
@@ -127,7 +125,7 @@ impl EventHandler {
     }
 
     pub async fn handle(&mut self, evt: Event) -> Result<()> {
-        trace!(self.log, "received event"; "event" => ?evt);
+        trace!(event=?evt, "received event");
 
         match evt {
             Event::Request                      => self.on_request().await?,
@@ -136,7 +134,7 @@ impl EventHandler {
             Event::LatchStatus { status }       => self.on_latch_status(status).await?,
             Event::DeviceMode { mode }          => self.on_device_mode(mode).await?,
             Event::Unknown { code, data } => {
-                warn!(self.log, "unhandled event"; "code" => code, "data" => ?data);
+                warn!(code, ?data, "unhandled event");
             },
         }
 
@@ -144,11 +142,11 @@ impl EventHandler {
     }
 
     async fn on_request(&mut self) -> Result<()> {
-        debug!(self.log, "request received");
+        debug!("request received");
 
         // handle cancellation signals
         if self.state.ec == EcState::InProgress {
-            trace!(self.log, "request: EC detachment in progress, treating this as cancelation");
+            trace!("request: EC detachment in progress, treating this as cancelation");
 
             // reset EC state and abort if the latch is closed; if latch is
             // open, this will be done on the "closed" event
@@ -165,7 +163,7 @@ impl EventHandler {
 
         // if no base is attached (or not-feasible), cancel
         if self.state.base != BaseState::Attached {
-            trace!(self.log, "request: base not attached, canceling this request");
+            trace!("request: base not attached, canceling this request");
 
             self.device.latch_cancel().context("DTX device error")?;
 
@@ -176,12 +174,12 @@ impl EventHandler {
             return Ok(());
         }
 
-        trace!(self.log, "request: core checks passed, starting detachment");
+        trace!("request: core checks passed, starting detachment");
         self.detachment_start().await
     }
 
     async fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
-        debug!(self.log, "cancel event received"; "reason" => ?reason);
+        debug!(?reason, "cancel event received");
 
         // reset EC state
         self.state.ec = EcState::Ready;
@@ -192,7 +190,7 @@ impl EventHandler {
     }
 
     async fn on_base_state(&mut self, state: event::BaseState) -> Result<()> {
-        debug!(self.log, "base connection changed"; "state" => ?state);
+        debug!(?state, "base connection changed");
 
         // translate state, warn and return on errors
         let state = match state {
@@ -200,7 +198,7 @@ impl EventHandler {
             event::BaseState::Detached    => BaseState::Detached,
             event::BaseState::NotFeasible => BaseState::NotFeasible,
             event::BaseState::Unknown(x) => {
-                error!(self.log, "unknown base state"; "state" => x);
+                error!(state=x, "unknown base state");
                 return Ok(());
             },
         };
@@ -240,14 +238,14 @@ impl EventHandler {
     }
 
     async fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
-        debug!(self.log, "latch status changed"; "status" => ?status);
+        debug!(?status, "latch status changed");
 
         // translate state, warn and return on errors
         let status = match status {
             event::LatchStatus::Closed => LatchStatus::Closed,
             event::LatchStatus::Opened => LatchStatus::Opened,
             event::LatchStatus::Error(err) => {
-                error!(self.log, "latch status error"; "error" => %err);
+                error!(error=%err, "latch status error");
 
                 // try to read latch status via ioctl, maybe we get an updated non-error state;
                 // otherwise try to infer actual state
@@ -261,14 +259,14 @@ impl EventHandler {
                     sdtx::LatchStatus::Error(HardwareError::Unknown(_))         => return Ok(()),
                 };
 
-                debug!(self.log, "latch status updated"; "status" => ?status);
+                debug!(?status, "latch status updated");
 
                 // TODO: forward error to user-space via service
 
                 status
             },
             event::LatchStatus::Unknown(x) => {
-                error!(self.log, "unknown latch status"; "status" => x);
+                error!(status=x, "unknown latch status");
                 return Ok(());
             },
         };
@@ -309,10 +307,10 @@ impl EventHandler {
     }
 
     async fn on_device_mode(&mut self, mode: event::DeviceMode) -> Result<()> {
-        debug!(self.log, "device mode changed"; "mode" => ?mode);
+        debug!(?mode, "device mode changed");
 
         if let event::DeviceMode::Unknown(mode) = mode {
-            error!(self.log, "unknown device mode"; "mode" => mode);
+            error!(mode, "unknown device mode");
             return Ok(());
         }
 
@@ -330,7 +328,7 @@ impl EventHandler {
 
             // if any subprocess is running (attach/abort), cancel the (new) request
             if *rt_state != RuntimeState::Ready {
-                trace!(self.log, "request: process in progress, canceling this request");
+                trace!("request: process in progress, canceling this request");
 
                 self.device.latch_cancel().context("DTX device error")?;
                 return Ok(());
@@ -339,15 +337,14 @@ impl EventHandler {
             *rt_state = RuntimeState::Detaching;
         }
 
-        let log = self.log.clone();
         let state = self.state.rt.clone();
         let device = self.device.clone();
         let task = async move {
             // TODO: properly implement detachment process
 
-            info!(log, "detachment process: starting");
+            info!("detachment process: starting");
             tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-            info!(log, "detachment process: done");
+            info!("detachment process: done");
 
             let mut state = state.lock().unwrap();
 
@@ -355,14 +352,14 @@ impl EventHandler {
             // aborting, an abort task will follow this one
             if *state == RuntimeState::Detaching {
                 *state = RuntimeState::Ready;
-                debug!(log, "confirm latch open");
+                debug!("confirm latch open");
                 device.latch_confirm()?;
             }
 
             Ok(())
         };
 
-        trace!(self.log, "request: scheduling detachment task");
+        trace!("request: scheduling detachment task");
         if let Err(_) = self.task_queue_tx.submit(task).await {
             unreachable!("receiver dropped");
         }
@@ -373,21 +370,20 @@ impl EventHandler {
     async fn detachment_abort(&mut self) -> Result<()> {
         *self.state.rt.lock().unwrap() = RuntimeState::Aborting;
 
-        let log = self.log.clone();
         let state = self.state.rt.clone();
         let task = async move {
             // TODO: properly implement detachment-abort process
 
-            info!(log, "abort process: starting");
+            info!("abort process: starting");
             tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-            info!(log, "abort process: done");
+            info!("abort process: done");
 
             *state.lock().unwrap() = RuntimeState::Ready;
 
             Ok(())
         };
 
-        trace!(self.log, "request: scheduling detachment-abort task");
+        trace!("request: scheduling detachment-abort task");
         if let Err(_) = self.task_queue_tx.submit(task).await {
             unreachable!("receiver dropped");
         }
@@ -398,21 +394,20 @@ impl EventHandler {
     async fn attachment_start(&mut self) -> Result<()> {
         *self.state.rt.lock().unwrap() = RuntimeState::Attaching;
 
-        let log = self.log.clone();
         let state = self.state.rt.clone();
         let task = async move {
             // TODO: properly implement attachment process
 
-            info!(log, "attachment process: starting");
+            info!("attachment process: starting");
             tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-            info!(log, "attachment process: done");
+            info!("attachment process: done");
 
             *state.lock().unwrap() = RuntimeState::Ready;
 
             Ok(())
         };
 
-        trace!(self.log, "request: scheduling attachment task");
+        trace!("request: scheduling attachment task");
         if let Err(_) = self.task_queue_tx.submit(task).await {
             unreachable!("receiver dropped");
         }

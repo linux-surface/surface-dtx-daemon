@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
 
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-daemon.conf";
@@ -32,9 +33,8 @@ pub struct Log {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all="lowercase")]
 pub enum LogLevel {
-    Critical,
     Error,
-    Warning,
+    Warn,
     Info,
     Debug,
     Trace,
@@ -112,6 +112,16 @@ impl Diagnostics {
             unknowns: BTreeSet::new()
         }
     }
+
+    pub fn log(&self) {
+        let span = tracing::info_span!("config", file=?self.path);
+        let _guard = span.enter();
+
+        debug!("configuration loaded");
+        for item in &self.unknowns {
+            warn!(item = %item, "unknown config item")
+        }
+    }
 }
 
 
@@ -136,15 +146,14 @@ mod defaults {
 }
 
 
-impl From<LogLevel> for slog::Level {
-    fn from(value: LogLevel) -> slog::Level {
-        match value {
-            LogLevel::Critical => slog::Level::Critical,
-            LogLevel::Error    => slog::Level::Error,
-            LogLevel::Warning  => slog::Level::Warning,
-            LogLevel::Info     => slog::Level::Info,
-            LogLevel::Debug    => slog::Level::Debug,
-            LogLevel::Trace    => slog::Level::Trace,
+impl From<LogLevel> for tracing::Level {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Error => tracing::Level::ERROR,
+            LogLevel::Warn  => tracing::Level::WARN,
+            LogLevel::Info  => tracing::Level::INFO,
+            LogLevel::Debug => tracing::Level::DEBUG,
+            LogLevel::Trace => tracing::Level::TRACE,
         }
     }
 }

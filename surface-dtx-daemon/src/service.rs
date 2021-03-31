@@ -10,20 +10,18 @@ use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 use sdtx::DeviceMode;
 use sdtx_tokio::Device;
 
-use slog::{debug, Logger};
+use tracing::debug;
 
 
 pub struct Service {
-    log: Logger,
     conn: Arc<SyncConnection>,
     device: Device,
     mode: Mutex<DeviceMode>,
 }
 
 impl Service {
-    pub fn new(log: Logger, conn: Arc<SyncConnection>, device: Device) -> Arc<Self> {
+    pub fn new(conn: Arc<SyncConnection>, device: Device) -> Arc<Self> {
         let service = Service {
-            log,
             conn,
             device,
             mode: Mutex::new(DeviceMode::Laptop),
@@ -68,7 +66,7 @@ impl Service {
             std::mem::replace(&mut *mode, new)
         };
 
-        debug!(self.log, "service: changing device mode"; "old" => %old, "new" => %new);
+        debug!(%old, %new, "changing device mode");
 
         // signal property changed
         if old != new {
