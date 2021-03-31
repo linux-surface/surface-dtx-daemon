@@ -7,6 +7,8 @@ use tokio::sync::mpsc::error::SendError;
 
 pub type Task<E> = Pin<Box<dyn Future<Output=Result<(), E>> + Send>>;
 
+
+#[derive(Debug)]
 pub struct TaskQueue<E> {
     rx: Receiver<Task<E>>,
 }
@@ -22,6 +24,7 @@ impl<E> TaskQueue<E> {
 }
 
 
+#[derive(Debug, Clone)]
 pub struct TaskSender<E> {
     tx: Sender<Task<E>>,
 }
