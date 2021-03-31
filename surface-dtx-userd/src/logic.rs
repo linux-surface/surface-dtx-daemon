@@ -13,10 +13,10 @@ use dbus_tokio::connection;
 
 use futures::prelude::*;
 
-use slog::{Logger, debug};
+use tracing::debug;
 
 
-pub async fn run(logger: Logger) -> Result<()> {
+pub async fn run() -> Result<()> {
     // set up and start D-Bus connections (system and user-session)
     let (sys_rsrc, sys_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus (system)")?;
@@ -31,9 +31,8 @@ pub async fn run(logger: Logger) -> Result<()> {
     let mut dses_task = tokio::spawn(ses_rsrc).guard();
 
     // set up D-Bus message listener task
-    let log = logger.clone();
     let mut main_task = tokio::spawn(async move {
-        let mut core = Core::new(log, ses_conn);
+        let mut core = Core::new(ses_conn);
 
         let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
         let (_msgs, mut stream) = sys_conn
@@ -94,15 +93,13 @@ impl FromStr for Status {
 
 #[derive(Clone)]
 struct Core {
-    log:          Logger,
     session:      Arc<SyncConnection>,
     detach_notif: Option<NotificationHandle>,
 }
 
 impl Core {
-    fn new(log: Logger, session: Arc<SyncConnection>) -> Self {
+    fn new(session: Arc<SyncConnection>) -> Self {
         Core {
-            log,
             session,
             detach_notif: None,
         }
@@ -112,7 +109,7 @@ impl Core {
         let m = message.as_result()
             .context("D-Bus remote error")?;
 
-        debug!(self.log, "message received"; "message" => ?m);
+        debug!(msg = ?m, "message received");
 
         // ignore any message that is not intended for us
         if m.interface() != Some("org.surface.dtx".into()) {
@@ -129,7 +126,7 @@ impl Core {
             .parse()
             .context("Protocol error")?;
 
-        debug!(self.log, "detach-state changed"; "value" => ?status);
+        debug!(status = ?status, "detach-state changed");
 
         // handle status notification
         match status {
@@ -153,7 +150,7 @@ impl Core {
             .show(&self.session).await
             .context("Failed to display notification")?;
 
-        debug!(self.log, "added notification {}", handle.id);
+        debug!(id = ?handle.id, "notification added");
 
         self.detach_notif = Some(handle);
         Ok(())
@@ -161,7 +158,7 @@ impl Core {
 
     async fn notify_detach_completed(&mut self) -> Result<()> {
         if let Some(notif) = self.detach_notif {
-            debug!(self.log, "closing notification {}", notif.id);
+            debug!(id = ?notif.id, "notification closed");
 
             notif.close(&self.session).await
                 .context("Failed to close notification")?;
