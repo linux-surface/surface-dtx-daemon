@@ -9,7 +9,7 @@ use crate::config::Config;
 use anyhow::{Context, Result};
 use tokio::signal::unix::{SignalKind, signal};
 
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 
 fn bootstrap() -> Result<Config> {
@@ -38,9 +38,13 @@ fn bootstrap() -> Result<Config> {
         .init();
 
     // warn about unknown config items
-    for item in diag.unknowns {
-        warn!(item = %item, file = ?diag.path, "unknown config item")
-    }
+    let span = tracing::info_span!("config", file=?diag.path);
+    span.in_scope(|| {
+        debug!("configuration loaded");
+        for item in diag.unknowns {
+            warn!(item = %item, "unknown config item")
+        }
+    });
 
     Ok(config)
 }
