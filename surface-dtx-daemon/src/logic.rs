@@ -282,7 +282,7 @@ impl EventHandler {
     }
 
     async fn on_latch_opened(&mut self) -> Result<()> {
-        todo!("handle latch opened")
+        Ok(())          // TODO: notify users that base can be detached
     }
 
     async fn on_latch_closed(&mut self) -> Result<()> {
