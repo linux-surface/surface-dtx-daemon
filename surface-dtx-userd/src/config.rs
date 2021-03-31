@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
 
 
 const SYSTEM_CONFIG_PATH: &str = "/etc/surface-dtx/surface-dtx-userd.conf";
@@ -93,6 +95,16 @@ impl Diagnostics {
         Diagnostics {
             path: PathBuf::new(),
             unknowns: BTreeSet::new()
+        }
+    }
+
+    pub fn log(&self) {
+        let span = tracing::info_span!("config", file=?self.path);
+        let _guard = span.enter();
+
+        debug!("configuration loaded");
+        for item in &self.unknowns {
+            warn!(item = %item, "unknown config item")
         }
     }
 }
