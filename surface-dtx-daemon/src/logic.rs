@@ -171,12 +171,6 @@ impl EventHandler {
             return Ok(());
         }
 
-        // if any subprocess is running (attach/abort), cancel the (new) request
-        if self.state.rt != RuntimeState::Ready {
-            self.device.latch_cancel().context("DTX device error")?;
-            return Ok(());
-        }
-
         self.detachment_start().await
     }
 
@@ -323,6 +317,14 @@ impl EventHandler {
     }
 
     async fn detachment_start(&mut self) -> Result<()> {
+        // if any subprocess is running (attach/abort), cancel the (new) request
+        if self.state.rt != RuntimeState::Ready {
+            self.device.latch_cancel().context("DTX device error")?;
+            return Ok(());
+        }
+
+        // additional checks (e.g. dGPU usage) could be added here
+
         self.state.rt = RuntimeState::Detaching;
 
         todo!("schedule new detachment process")
