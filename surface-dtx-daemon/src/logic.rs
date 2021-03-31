@@ -14,7 +14,7 @@ use futures::prelude::*;
 use sdtx::{BaseState, DeviceMode, Event, event, HardwareError};
 use sdtx_tokio::Device;
 
-use slog::{debug, error, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 
 use tokio::sync::mpsc::Sender;
 
@@ -39,13 +39,13 @@ enum LatchStatus {
     Opened,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct State {
     base: BaseState,
     latch: LatchStatus,
-    rt: RuntimeState,
     ec: EcState,
     needs_attachment: bool,
+    rt: Arc<Mutex<RuntimeState>>,
 }
 
 impl State {
@@ -53,9 +53,9 @@ impl State {
         State {
             base: BaseState::Attached,
             latch: LatchStatus::Closed,
-            rt: RuntimeState::Ready,
             ec: EcState::Ready,
             needs_attachment: false,
+            rt: Arc::new(Mutex::new(RuntimeState::Ready)),
         }
     }
 }
@@ -64,7 +64,7 @@ impl State {
 pub struct EventHandler {
     log: Logger,
     config: Config,
-    device: Device,
+    device: Arc<Device>,
     service: Arc<Service>,
     task_queue_tx: Sender<Task>,
     state: State,
@@ -78,7 +78,7 @@ impl EventHandler {
         EventHandler {
             log,
             config,
-            device,
+            device: Arc::new(device),
             service,
             task_queue_tx,
             state: State::init(),
@@ -112,8 +112,8 @@ impl EventHandler {
 
         self.state.base = base;
         self.state.latch = latch;
-        self.state.rt = RuntimeState::Ready;
         self.state.ec = ec;
+        *self.state.rt.lock().unwrap() = RuntimeState::Ready;
 
         self.service.set_device_mode(mode);
 
@@ -147,6 +147,8 @@ impl EventHandler {
 
         // handle cancellation signals
         if self.state.ec == EcState::InProgress {
+            trace!(self.log, "request: EC detachment in progress, treating this as cancelation");
+
             // reset EC state and abort if the latch is closed; if latch is
             // open, this will be done on the "closed" event
             if self.state.latch == LatchStatus::Closed {
@@ -162,6 +164,8 @@ impl EventHandler {
 
         // if no base is attached (or not-feasible), cancel
         if self.state.base != BaseState::Attached {
+            trace!(self.log, "request: base not attached, canceling this request");
+
             self.device.latch_cancel().context("DTX device error")?;
 
             if self.state.base == BaseState::NotFeasible {
@@ -171,6 +175,7 @@ impl EventHandler {
             return Ok(());
         }
 
+        trace!(self.log, "request: core checks passed, starting detachment");
         self.detachment_start().await
     }
 
@@ -317,28 +322,100 @@ impl EventHandler {
     }
 
     async fn detachment_start(&mut self) -> Result<()> {
-        // if any subprocess is running (attach/abort), cancel the (new) request
-        if self.state.rt != RuntimeState::Ready {
-            self.device.latch_cancel().context("DTX device error")?;
-            return Ok(());
-        }
-
         // additional checks (e.g. dGPU usage) could be added here
 
-        self.state.rt = RuntimeState::Detaching;
+        {
+            let mut rt_state = self.state.rt.lock().unwrap();
 
-        todo!("schedule new detachment process")
+            // if any subprocess is running (attach/abort), cancel the (new) request
+            if *rt_state != RuntimeState::Ready {
+                trace!(self.log, "request: process in progress, canceling this request");
+
+                self.device.latch_cancel().context("DTX device error")?;
+                return Ok(());
+            }
+
+            *rt_state = RuntimeState::Detaching;
+        }
+
+        let log = self.log.clone();
+        let state = self.state.rt.clone();
+        let device = self.device.clone();
+        let task = async move {
+            // TODO: properly implement detachment process
+
+            info!(log, "detachment process: starting");
+            tokio::time::sleep(std::time::Duration::new(5, 0)).await;
+            info!(log, "detachment process: done");
+
+            let mut state = state.lock().unwrap();
+
+            // only change state and open if we are detaching, if we are
+            // aborting, an abort task will follow this one
+            if *state == RuntimeState::Detaching {
+                *state = RuntimeState::Ready;
+                debug!(log, "confirm latch open");
+                device.latch_confirm()?;
+            }
+
+            Ok(())
+        };
+
+        trace!(self.log, "request: scheduling detachment task");
+        if let Err(_) = self.task_queue_tx.send(Box::pin(task)).await {
+            unreachable!("receiver dropped");
+        }
+
+        Ok(())
     }
 
     async fn detachment_abort(&mut self) -> Result<()> {
-        self.state.rt = RuntimeState::Aborting;
+        *self.state.rt.lock().unwrap() = RuntimeState::Aborting;
 
-        todo!("abort any in-progress detachment process")
+        let log = self.log.clone();
+        let state = self.state.rt.clone();
+        let task = async move {
+            // TODO: properly implement detachment-abort process
+
+            info!(log, "abort process: starting");
+            tokio::time::sleep(std::time::Duration::new(5, 0)).await;
+            info!(log, "abort process: done");
+
+            *state.lock().unwrap() = RuntimeState::Ready;
+
+            Ok(())
+        };
+
+        trace!(self.log, "request: scheduling detachment-abort task");
+        if let Err(_) = self.task_queue_tx.send(Box::pin(task)).await {
+            unreachable!("receiver dropped");
+        }
+
+        Ok(())
     }
 
     async fn attachment_start(&mut self) -> Result<()> {
-        self.state.rt = RuntimeState::Attaching;
+        *self.state.rt.lock().unwrap() = RuntimeState::Attaching;
 
-        todo!("schedule new attachment process")
+        let log = self.log.clone();
+        let state = self.state.rt.clone();
+        let task = async move {
+            // TODO: properly implement attachment process
+
+            info!(log, "attachment process: starting");
+            tokio::time::sleep(std::time::Duration::new(5, 0)).await;
+            info!(log, "attachment process: done");
+
+            *state.lock().unwrap() = RuntimeState::Ready;
+
+            Ok(())
+        };
+
+        trace!(self.log, "request: scheduling attachment task");
+        if let Err(_) = self.task_queue_tx.send(Box::pin(task)).await {
+            unreachable!("receiver dropped");
+        }
+
+        Ok(())
     }
 }
