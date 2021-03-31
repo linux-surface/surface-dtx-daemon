@@ -22,7 +22,9 @@ use tokio::sync::mpsc::Sender;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RuntimeState {
     Ready,
-    _TODO,
+    Detaching,
+    Aborting,
+    Attaching,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,7 +172,7 @@ impl EventHandler {
         }
 
         // if any subprocess is running (attach/abort), cancel the (new) request
-        if todo!("check if any subprocess is running") {
+        if self.state.rt != RuntimeState::Ready {
             self.device.latch_cancel().context("DTX device error")?;
             return Ok(());
         }
@@ -321,14 +323,20 @@ impl EventHandler {
     }
 
     async fn detachment_start(&mut self) -> Result<()> {
+        self.state.rt = RuntimeState::Detaching;
+
         todo!("schedule new detachment process")
     }
 
     async fn detachment_abort(&mut self) -> Result<()> {
+        self.state.rt = RuntimeState::Aborting;
+
         todo!("abort any in-progress detachment process")
     }
 
     async fn attachment_start(&mut self) -> Result<()> {
+        self.state.rt = RuntimeState::Attaching;
+
         todo!("schedule new attachment process")
     }
 }
