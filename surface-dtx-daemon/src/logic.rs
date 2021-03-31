@@ -133,9 +133,7 @@ impl EventHandler {
             Event::BaseConnection { state, .. } => self.on_base_state(state).await?,
             Event::LatchStatus { status }       => self.on_latch_status(status).await?,
             Event::DeviceMode { mode }          => self.on_device_mode(mode).await?,
-            Event::Unknown { code, data } => {
-                warn!(code, ?data, "unhandled event");
-            },
+            Event::Unknown { code, data }       => warn!(code, ?data, "unhandled event"),
         }
 
         Ok(())
@@ -244,19 +242,21 @@ impl EventHandler {
         let status = match status {
             event::LatchStatus::Closed => LatchStatus::Closed,
             event::LatchStatus::Opened => LatchStatus::Opened,
-            event::LatchStatus::Error(err) => {
-                error!(error=%err, "latch status error");
+            event::LatchStatus::Error(error) => {
+                use HardwareError as HwErr;
+
+                error!(%error, "latch status error");
 
                 // try to read latch status via ioctl, maybe we get an updated non-error state;
                 // otherwise try to infer actual state
                 let status = self.device.get_latch_status().context("DTX device error")?;
                 let status = match status {
-                    sdtx::LatchStatus::Closed                                   => LatchStatus::Closed,
-                    sdtx::LatchStatus::Opened                                   => LatchStatus::Opened,
-                    sdtx::LatchStatus::Error(HardwareError::FailedToOpen)       => LatchStatus::Closed,
-                    sdtx::LatchStatus::Error(HardwareError::FailedToRemainOpen) => LatchStatus::Closed,
-                    sdtx::LatchStatus::Error(HardwareError::FailedToClose)      => LatchStatus::Opened,
-                    sdtx::LatchStatus::Error(HardwareError::Unknown(_))         => return Ok(()),
+                    sdtx::LatchStatus::Closed                           => LatchStatus::Closed,
+                    sdtx::LatchStatus::Opened                           => LatchStatus::Opened,
+                    sdtx::LatchStatus::Error(HwErr::FailedToOpen)       => LatchStatus::Closed,
+                    sdtx::LatchStatus::Error(HwErr::FailedToRemainOpen) => LatchStatus::Closed,
+                    sdtx::LatchStatus::Error(HwErr::FailedToClose)      => LatchStatus::Opened,
+                    sdtx::LatchStatus::Error(HwErr::Unknown(_))         => return Ok(()),
                 };
 
                 debug!(?status, "latch status updated");

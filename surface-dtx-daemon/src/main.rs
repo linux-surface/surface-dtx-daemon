@@ -34,7 +34,6 @@ use tracing::{error, info, warn};
 type Task = tq::Task<Error>;
 
 
-
 fn bootstrap() -> Result<Config> {
     // handle command line input
     let matches = cli::app().get_matches();
