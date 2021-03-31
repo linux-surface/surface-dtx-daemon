@@ -632,6 +632,7 @@ name = "surface-dtx-userd"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "atty",
  "clap",
  "dbus",
  "dbus-tokio",

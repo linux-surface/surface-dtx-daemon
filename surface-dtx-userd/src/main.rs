@@ -23,11 +23,18 @@ fn bootstrap() -> Result<Config> {
     };
 
     // set up logger
+    let ansi = atty::is(atty::Stream::Stdout);
+
     let filter = tracing_subscriber::EnvFilter::from_env("SDTX_USERD_LOG")
         .add_directive(tracing::Level::from(config.log.level).into());
 
+    let fmt = tracing_subscriber::fmt::format::PrettyFields::new()
+        .with_ansi(ansi);
+
     tracing_subscriber::fmt()
+        .fmt_fields(fmt)
         .with_env_filter(filter)
+        .with_ansi(atty::is(atty::Stream::Stdout))
         .init();
 
     // warn about unknown config items
