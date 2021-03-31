@@ -143,9 +143,14 @@ impl EventHandler {
 
         // handle cancellation signals
         if self.state.ec == EcState::InProgress {
-            self.state.ec = EcState::Ready;
+            // reset EC state and abort if the latch is closed; if latch is
+            // open, this will be done on the "closed" event
+            if self.state.latch == LatchStatus::Closed {
+                self.state.ec = EcState::Ready;
+                self.detachment_abort().await?;
+            }
 
-            return self.detachment_abort().await;
+            return Ok(());
         }
 
         // if this request is not for cancellation, mark us as in-progress
