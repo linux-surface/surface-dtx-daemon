@@ -3,11 +3,12 @@
 use crate::Task;
 use crate::config::Config;
 use crate::service::Service;
+use crate::tq::TaskSender;
 
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 
 use futures::prelude::*;
 
@@ -66,13 +67,13 @@ pub struct EventHandler {
     config: Config,
     device: Arc<Device>,
     service: Arc<Service>,
-    task_queue_tx: Sender<Task>,
+    task_queue_tx: TaskSender<Error>,
     state: State,
 }
 
 impl EventHandler {
     pub fn new(log: Logger, config: Config, service: Arc<Service>, device: Device,
-               task_queue_tx: Sender<Task>)
+               task_queue_tx: TaskSender<Error>)
         -> Self
     {
         EventHandler {
@@ -362,7 +363,7 @@ impl EventHandler {
         };
 
         trace!(self.log, "request: scheduling detachment task");
-        if let Err(_) = self.task_queue_tx.send(Box::pin(task)).await {
+        if let Err(_) = self.task_queue_tx.submit(task).await {
             unreachable!("receiver dropped");
         }
 
@@ -387,7 +388,7 @@ impl EventHandler {
         };
 
         trace!(self.log, "request: scheduling detachment-abort task");
-        if let Err(_) = self.task_queue_tx.send(Box::pin(task)).await {
+        if let Err(_) = self.task_queue_tx.submit(task).await {
             unreachable!("receiver dropped");
         }
 
@@ -412,7 +413,7 @@ impl EventHandler {
         };
 
         trace!(self.log, "request: scheduling attachment task");
-        if let Err(_) = self.task_queue_tx.send(Box::pin(task)).await {
+        if let Err(_) = self.task_queue_tx.submit(task).await {
             unreachable!("receiver dropped");
         }
 

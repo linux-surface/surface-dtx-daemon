@@ -10,7 +10,6 @@ mod service;
 use service::Service;
 
 mod tq;
-use tq::TaskQueue;
 
 mod utils;
 use utils::JoinHandleExt;
@@ -116,7 +115,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let serv_guard = utils::guard(|| { serv.unregister(&mut dbus_cr.lock().unwrap()); });
 
     // set up task-queue
-    let (mut queue, queue_tx) = TaskQueue::new();
+    let (mut queue, queue_tx) = tq::new();
     let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
 
     // set up event handler
