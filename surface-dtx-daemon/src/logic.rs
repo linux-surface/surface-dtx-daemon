@@ -179,12 +179,20 @@ impl EventHandler {
     async fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
         debug!(?reason, "cancel event received");
 
-        // reset EC state
-        self.state.ec = EcState::Ready;
+        // TODO: notify users?
 
-        // TODO: warn users via service
+        match self.state.ec {
+            EcState::Ready => {         // no detachment in progress
+                Ok(())
+            },
+            EcState::InProgress => {    // detachment in progress
+                // reset EC state
+                self.state.ec = EcState::Ready;
 
-        self.detachment_cancel().await
+                // cancel current detachment procedure
+                self.detachment_cancel().await
+            },
+        }
     }
 
     async fn on_base_state(&mut self, state: event::BaseState) -> Result<()> {
@@ -361,6 +369,10 @@ impl EventHandler {
     }
 
     async fn detachment_cancel(&mut self) -> Result<()> {
+        // We might have canceled in detachment_start() while the EC itself was
+        // ready for detachment again. This will lead to a detachment_cancel()
+        // call while we are already aborting. Make sure that we're only
+        // scheduling the abort task once.
         {
             let mut state = self.state.rt.lock().unwrap();
 
