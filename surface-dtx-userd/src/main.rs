@@ -25,7 +25,7 @@ fn bootstrap() -> Result<Config> {
     // set up logger
     let ansi = atty::is(atty::Stream::Stdout);
 
-    let filter = tracing_subscriber::EnvFilter::from_env("SDTX_USERD_LOG")
+    let filter = tracing_subscriber::EnvFilter::from_env("SDTXU_LOG")
         .add_directive(tracing::Level::from(config.log.level).into());
 
     let fmt = tracing_subscriber::fmt::format::PrettyFields::new()
