@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::mpsc::error::SendError;
 
 
@@ -10,7 +10,7 @@ pub type Task<E> = Pin<Box<dyn Future<Output=Result<(), E>> + Send>>;
 
 #[derive(Debug)]
 pub struct TaskQueue<E> {
-    rx: Receiver<Task<E>>,
+    rx: UnboundedReceiver<Task<E>>,
 }
 
 impl<E> TaskQueue<E> {
@@ -26,25 +26,21 @@ impl<E> TaskQueue<E> {
 
 #[derive(Debug, Clone)]
 pub struct TaskSender<E> {
-    tx: Sender<Task<E>>,
+    tx: UnboundedSender<Task<E>>,
 }
 
 impl<E> TaskSender<E> {
-    pub async fn submit<T>(&self, task: T) -> Result<(), SendError<Task<E>>>
+    pub fn submit<T>(&self, task: T) -> Result<(), SendError<Task<E>>>
     where
         T: Future<Output=Result<(), E>> + Send + 'static
     {
-        self.tx.send(Box::pin(task)).await
+        self.tx.send(Box::pin(task))
     }
 }
 
 
 pub fn new<E>() -> (TaskQueue<E>, TaskSender<E>) {
-    with_capacity(32)
-}
-
-pub fn with_capacity<E>(size: usize) -> (TaskQueue<E>, TaskSender<E>) {
-    let (tx, rx) = channel(size);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
     (TaskQueue { rx }, TaskSender { tx })
 }

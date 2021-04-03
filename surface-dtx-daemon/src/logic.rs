@@ -361,7 +361,7 @@ impl EventHandler {
         };
 
         trace!("request: scheduling detachment task");
-        if self.task_queue_tx.submit(task).await.is_err() {
+        if self.task_queue_tx.submit(task).is_err() {
             unreachable!("receiver dropped");
         }
 
@@ -397,7 +397,7 @@ impl EventHandler {
         };
 
         trace!("request: scheduling detachment-abort task");
-        if self.task_queue_tx.submit(task).await.is_err() {
+        if self.task_queue_tx.submit(task).is_err() {
             unreachable!("receiver dropped");
         }
 
@@ -426,7 +426,7 @@ impl EventHandler {
         };
 
         trace!("request: scheduling attachment task");
-        if self.task_queue_tx.submit(task).await.is_err() {
+        if self.task_queue_tx.submit(task).is_err() {
             unreachable!("receiver dropped");
         }
 
