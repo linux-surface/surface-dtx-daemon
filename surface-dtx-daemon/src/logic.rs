@@ -297,12 +297,13 @@ impl EventHandler {
         // TODO: notify users
 
         if self.state.base == BaseState::Detached {
-            Ok(())      // nothing to do if base is detached
-        } else if self.state.needs_attachment {
-            self.state.needs_attachment = false;
-            self.attachment_start().await
-        } else {
+            self.detachment_complete().await
+        } else if !self.state.needs_attachment {
             self.detachment_cancel().await
+        } else {
+            self.state.needs_attachment = false;
+            self.detachment_complete().await?;
+            self.attachment_start().await
         }
     }
 
@@ -389,6 +390,10 @@ impl EventHandler {
         }
 
         Ok(())
+    }
+
+    async fn detachment_complete(&mut self) -> Result<()> {
+        Ok(())  // TODO: notify users?
     }
 
     async fn attachment_start(&mut self) -> Result<()> {
