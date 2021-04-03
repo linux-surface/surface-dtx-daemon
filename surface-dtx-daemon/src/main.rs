@@ -4,7 +4,6 @@ mod config;
 use config::Config;
 
 mod logic;
-use logic::EventHandler;
 
 mod service;
 use service::Service;
@@ -17,7 +16,7 @@ use utils::JoinHandleExt;
 
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Error, Result};
+use anyhow::{Context, Result};
 
 use dbus::channel::MatchingReceiver;
 use dbus::message::MatchRule;
@@ -29,9 +28,6 @@ use futures::prelude::*;
 use tokio::signal::unix::{signal, SignalKind};
 
 use tracing::{error, info, warn};
-
-
-type Task = tq::Task<Error>;
 
 
 fn bootstrap() -> Result<Config> {
@@ -113,7 +109,9 @@ async fn run() -> Result<()> {
     let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
 
     // set up event handler
-    let mut core = EventHandler::new(config, serv.clone(), event_device, queue_tx);
+    let device = Arc::new(event_device);
+    let adapter = logic::DebugAdapter::new(config, device.clone(), queue_tx);
+    let mut core = logic::Core::new(device, adapter);
     let mut event_task = tokio::spawn(async move { core.run().await }).guard();
 
     // collect main driver tasks

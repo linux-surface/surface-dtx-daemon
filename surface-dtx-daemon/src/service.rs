@@ -60,6 +60,7 @@ impl Service {
         let _ : Option<Arc<Service>> = cr.remove(&"/org/surface/dtx".into());
     }
 
+    #[allow(unused)]
     pub fn set_device_mode(&self, new: DeviceMode) {
         let old = {
             let mut mode = self.mode.lock().unwrap();
