@@ -347,15 +347,7 @@ impl EventHandler {
             tokio::time::sleep(std::time::Duration::new(5, 0)).await;
             info!("detachment process: done");
 
-            let mut state = state.lock().unwrap();
-
-            // only change state and open if we are detaching, if we are
-            // aborting, an abort task will follow this one
-            if *state == RuntimeState::Detaching {
-                *state = RuntimeState::Ready;
-                debug!("confirm latch open");
-                device.latch_confirm()?;
-            }
+            // state will be changed by either detachment_complete or detachment_cancel
 
             Ok(())
         };
@@ -369,7 +361,15 @@ impl EventHandler {
     }
 
     async fn detachment_cancel(&mut self) -> Result<()> {
-        *self.state.rt.lock().unwrap() = RuntimeState::Aborting;
+        {
+            let mut state = self.state.rt.lock().unwrap();
+
+            if *state != RuntimeState::Detaching {
+                return Ok(());
+            }
+
+            *state = RuntimeState::Aborting;
+        }
 
         let state = self.state.rt.clone();
         let task = async move {
@@ -393,6 +393,7 @@ impl EventHandler {
     }
 
     async fn detachment_complete(&mut self) -> Result<()> {
+        *self.state.rt.lock().unwrap() = RuntimeState::Ready;
         Ok(())  // TODO: notify users?
     }
 
