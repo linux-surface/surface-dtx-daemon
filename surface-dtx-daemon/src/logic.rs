@@ -35,7 +35,7 @@ enum EcState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LatchStatus {
+enum LatchState {
     Closed,
     Opened,
 }
@@ -43,7 +43,7 @@ enum LatchStatus {
 #[derive(Debug, Clone)]
 struct State {
     base: BaseState,
-    latch: LatchStatus,
+    latch: LatchState,
     ec: EcState,
     needs_attachment: bool,
     rt: Arc<Mutex<RuntimeState>>,
@@ -53,7 +53,7 @@ impl State {
     fn init() -> Self {
         State {
             base: BaseState::Attached,
-            latch: LatchStatus::Closed,
+            latch: LatchState::Closed,
             ec: EcState::Ready,
             needs_attachment: false,
             rt: Arc::new(Mutex::new(RuntimeState::Ready)),
@@ -99,14 +99,14 @@ impl EventHandler {
         let mode = self.device.get_device_mode().context("DTX device error")?;
 
         let latch = match latch {
-            sdtx::LatchStatus::Closed => LatchStatus::Closed,
-            sdtx::LatchStatus::Opened => LatchStatus::Opened,
+            sdtx::LatchStatus::Closed => LatchState::Closed,
+            sdtx::LatchStatus::Opened => LatchState::Opened,
             sdtx::LatchStatus::Error(err) => Err(err).context("DTX hardware error")?,
         };
 
         let ec = match latch {
-            LatchStatus::Closed => EcState::Ready,
-            LatchStatus::Opened => EcState::InProgress,
+            LatchState::Closed => EcState::Ready,
+            LatchState::Opened => EcState::InProgress,
         };
 
         self.state.base = base;
@@ -148,7 +148,7 @@ impl EventHandler {
 
             // reset EC state and abort if the latch is closed; if latch is
             // open, this will be done on the "closed" event
-            if self.state.latch == LatchStatus::Closed {
+            if self.state.latch == LatchState::Closed {
                 self.state.ec = EcState::Ready;
                 self.detachment_abort().await?;
             }
@@ -224,11 +224,11 @@ impl EventHandler {
         // latch to close before starting that
 
         match self.state.latch {
-            LatchStatus::Closed => {
+            LatchState::Closed => {
                 self.state.needs_attachment = false;
                 self.attachment_start().await
             },
-            LatchStatus::Opened => {
+            LatchState::Opened => {
                 self.state.needs_attachment = true;
                 Ok(())
             },
@@ -240,8 +240,8 @@ impl EventHandler {
 
         // translate state, warn and return on errors
         let status = match status {
-            event::LatchStatus::Closed => LatchStatus::Closed,
-            event::LatchStatus::Opened => LatchStatus::Opened,
+            event::LatchStatus::Closed => LatchState::Closed,
+            event::LatchStatus::Opened => LatchState::Opened,
             event::LatchStatus::Error(error) => {
                 use HardwareError as HwErr;
 
@@ -251,11 +251,11 @@ impl EventHandler {
                 // otherwise try to infer actual state
                 let status = self.device.get_latch_status().context("DTX device error")?;
                 let status = match status {
-                    sdtx::LatchStatus::Closed                           => LatchStatus::Closed,
-                    sdtx::LatchStatus::Opened                           => LatchStatus::Opened,
-                    sdtx::LatchStatus::Error(HwErr::FailedToOpen)       => LatchStatus::Closed,
-                    sdtx::LatchStatus::Error(HwErr::FailedToRemainOpen) => LatchStatus::Closed,
-                    sdtx::LatchStatus::Error(HwErr::FailedToClose)      => LatchStatus::Opened,
+                    sdtx::LatchStatus::Closed                           => LatchState::Closed,
+                    sdtx::LatchStatus::Opened                           => LatchState::Opened,
+                    sdtx::LatchStatus::Error(HwErr::FailedToOpen)       => LatchState::Closed,
+                    sdtx::LatchStatus::Error(HwErr::FailedToRemainOpen) => LatchState::Closed,
+                    sdtx::LatchStatus::Error(HwErr::FailedToClose)      => LatchState::Opened,
                     sdtx::LatchStatus::Error(HwErr::Unknown(_))         => return Ok(()),
                 };
 
@@ -272,7 +272,7 @@ impl EventHandler {
         };
 
         // reset EC state if closed
-        if status == LatchStatus::Closed {
+        if status == LatchState::Closed {
             self.state.ec = EcState::Ready;
         }
 
@@ -284,8 +284,8 @@ impl EventHandler {
 
         // handle actual transition
         match status {
-            LatchStatus::Opened => self.on_latch_opened().await,
-            LatchStatus::Closed => self.on_latch_closed().await,
+            LatchState::Opened => self.on_latch_opened().await,
+            LatchState::Closed => self.on_latch_closed().await,
         }
     }
 
