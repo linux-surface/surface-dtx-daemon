@@ -150,7 +150,7 @@ impl EventHandler {
             // open, this will be done on the "closed" event
             if self.state.latch == LatchState::Closed {
                 self.state.ec = EcState::Ready;
-                self.detachment_abort().await?;
+                self.detachment_cancel().await?;
             }
 
             return Ok(());
@@ -184,7 +184,7 @@ impl EventHandler {
 
         // TODO: warn users via service
 
-        self.detachment_abort().await
+        self.detachment_cancel().await
     }
 
     async fn on_base_state(&mut self, state: event::BaseState) -> Result<()> {
@@ -302,7 +302,7 @@ impl EventHandler {
             self.state.needs_attachment = false;
             self.attachment_start().await
         } else {
-            self.detachment_abort().await
+            self.detachment_cancel().await
         }
     }
 
@@ -367,7 +367,7 @@ impl EventHandler {
         Ok(())
     }
 
-    async fn detachment_abort(&mut self) -> Result<()> {
+    async fn detachment_cancel(&mut self) -> Result<()> {
         *self.state.rt.lock().unwrap() = RuntimeState::Aborting;
 
         let state = self.state.rt.clone();
