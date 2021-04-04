@@ -30,12 +30,14 @@ enum Event {
     Request,
 
     DetachConfirm,
-
     DetachCancel,
+    DetachTimeout,
 
     AttachComplete,
+    AttachTimeout,
 
     CancelComplete,
+    CancelTimeout,
 
     Cancel {
         reason: event::CancelReason,
@@ -206,11 +208,20 @@ impl<A: Adapter> Core<A> {
             Event::DetachCancel => {
                 self.on_detach_cancel()
             },
+            Event::DetachTimeout => {
+                self.on_detach_timeout()
+            },
             Event::AttachComplete => {
                 self.on_attach_complete()
             },
+            Event::AttachTimeout => {
+                self.on_attach_timeout()
+            },
             Event::CancelComplete => {
                 self.on_cancel_complete()
+            },
+            Event::CancelTimeout => {
+                self.on_cancel_timeout()
             },
             Event::Cancel { reason } => {
                 self.on_cancel(reason)
@@ -348,6 +359,26 @@ impl<A: Adapter> Core<A> {
         self.device.latch_cancel().context("DTX device error")
     }
 
+    fn on_detach_timeout(&mut self) -> Result<()> {
+        // internal event, sent by adapter when latch open process times out
+        debug!(target: "sdtxd::core", "detachment timed out");
+
+        if *self.state.ec != EcState::InProgress {
+            debug!(target: "sdtxd::core", "timeout sent while no detachment in progress");
+            return Ok(());
+        }
+
+        if *self.state.rt != RuntimeState::Detaching {
+            debug!(target: "sdtxd::core", "detachment has already been canceled, ignoring");
+            return Ok(());
+        }
+
+        debug!(target: "sdtxd::core", "canceling detachment");
+        self.device.latch_cancel().context("DTX device error")?;
+
+        self.adapter.detachment_timeout()
+    }
+
     fn on_attach_complete(&mut self) -> Result<()> {
         // internal event, sent by adapter when attachment is completed
         debug!(target: "sdtxd::core", "attachment complete");
@@ -355,11 +386,25 @@ impl<A: Adapter> Core<A> {
         self.adapter.attachment_complete()
     }
 
+    fn on_attach_timeout(&mut self) -> Result<()> {
+        // internal event, sent by adapter when attachment is completed
+        debug!(target: "sdtxd::core", "attachment timed out");
+        self.state.rt.set(RuntimeState::Ready);
+        self.adapter.attachment_timeout()
+    }
+
     fn on_cancel_complete(&mut self) -> Result<()> {
         // internal event, sent by adapter when detach-abort is completed
         debug!(target: "sdtxd::core", "detachment cancellation complete");
         self.state.rt.set(RuntimeState::Ready);
         self.adapter.detachment_cancel_complete()
+    }
+
+    fn on_cancel_timeout(&mut self) -> Result<()> {
+        // internal event, sent by adapter when detach-abort is completed
+        debug!(target: "sdtxd::core", "detachment cancellation timed out");
+        self.state.rt.set(RuntimeState::Ready);
+        self.adapter.detachment_cancel_timeout()
     }
 
     fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
@@ -606,6 +651,10 @@ impl DtHandle {
         let _ = self.inject.send(Event::DetachCancel);
     }
 
+    pub fn timeout(&self) {
+        let _ = self.inject.send(Event::DetachTimeout);
+    }
+
     pub fn heartbeat(&self) -> Result<()> {
         debug!(target: "sdtxd::core", "sending heartbeat");
         self.device.latch_heartbeat().context("DTX device error")
@@ -622,6 +671,10 @@ impl DtcHandle {
     pub fn complete(&self) {
         let _ = self.inject.send(Event::CancelComplete);
     }
+
+    pub fn timeout(&self) {
+        let _ = self.inject.send(Event::CancelTimeout);
+    }
 }
 
 
@@ -633,6 +686,10 @@ pub struct AtHandle {
 impl AtHandle {
     pub fn complete(&self) {
         let _ = self.inject.send(Event::AttachComplete);
+    }
+
+    pub fn timeout(&self) {
+        let _ = self.inject.send(Event::AttachTimeout);
     }
 }
 
@@ -653,11 +710,19 @@ pub trait Adapter {
         Ok(())
     }
 
+    fn detachment_timeout(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     fn detachment_cancel_start(&mut self, handle: DtcHandle, reason: CancelReason) -> Result<()> {
         Ok(())
     }
 
     fn detachment_cancel_complete(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn detachment_cancel_timeout(&mut self) -> Result<()> {
         Ok(())
     }
 
@@ -670,6 +735,10 @@ pub trait Adapter {
     }
 
     fn attachment_complete(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn attachment_timeout(&mut self) -> Result<()> {
         Ok(())
     }
 
@@ -714,6 +783,12 @@ macro_rules! impl_adapter_for_tuple {
                 Ok(())
             }
 
+            fn detachment_timeout(&mut self) -> Result<()> {
+                let ($($name,)+) = self;
+                ($($name.detachment_timeout()?,)+);
+                Ok(())
+            }
+
             fn detachment_cancel_start(&mut self, handle: DtcHandle, reason: CancelReason) -> Result<()> {
                 let ($($name,)+) = self;
                 ($($name.detachment_cancel_start(handle.clone(), reason)?,)+);
@@ -723,6 +798,12 @@ macro_rules! impl_adapter_for_tuple {
             fn detachment_cancel_complete(&mut self) -> Result<()> {
                 let ($($name,)+) = self;
                 ($($name.detachment_cancel_complete()?,)+);
+                Ok(())
+            }
+
+            fn detachment_cancel_timeout(&mut self) -> Result<()> {
+                let ($($name,)+) = self;
+                ($($name.detachment_cancel_timeout()?,)+);
                 Ok(())
             }
 
@@ -741,6 +822,12 @@ macro_rules! impl_adapter_for_tuple {
             fn attachment_complete(&mut self) -> Result<()> {
                 let ($($name,)+) = self;
                 ($($name.attachment_complete()?,)+);
+                Ok(())
+            }
+
+            fn attachment_timeout(&mut self) -> Result<()> {
+                let ($($name,)+) = self;
+                ($($name.attachment_timeout()?,)+);
                 Ok(())
             }
 

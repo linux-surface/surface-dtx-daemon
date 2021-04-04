@@ -76,7 +76,7 @@ impl Adapter for ProcessAdapter {
             tokio::time::sleep(Duration::from_millis(timeout as _)).await;
 
             trace!(target: "sdtxd::proc", "detachment process timed out, canceling");
-            h.cancel();
+            h.timeout();
 
             Ok(())
         };
@@ -150,6 +150,8 @@ impl Adapter for ProcessAdapter {
             tokio::time::sleep(Duration::from_millis(timeout as _)).await;
 
             trace!(target: "sdtxd::proc", "detachment-abort timed out, canceling");
+            h.timeout();
+
             Ok(())
         };
 
@@ -178,18 +180,17 @@ impl Adapter for ProcessAdapter {
             };
 
             trace!(target: "sdtxd::proc", "detachment-abort process completed");
+            handle.complete();
+
             Ok(())
         };
 
         // build task
         let task = async move {
-            let result = tokio::select! {
+            tokio::select! {
                 r = proc      => r,
                 r = timeout   => r,
-            };
-
-            h.complete();
-            result
+            }
         };
 
         // submit task
@@ -203,11 +204,14 @@ impl Adapter for ProcessAdapter {
 
     fn attachment_start(&mut self, handle: AtHandle) -> Result<()> {
         // build timeout task
+        let h = handle.clone();
         let timeout = self.config.handler.attach.timeout * 1000.0;
         let timeout = async move {
             tokio::time::sleep(Duration::from_millis(timeout as _)).await;
 
             trace!(target: "sdtxd::proc", "detachment-abort timed out, canceling");
+            h.timeout();
+
             Ok(())
         };
 
@@ -236,6 +240,8 @@ impl Adapter for ProcessAdapter {
             };
 
             trace!(target: "sdtxd::proc", "attachment process completed");
+            handle.complete();
+
             Ok(())
         };
 
@@ -247,13 +253,10 @@ impl Adapter for ProcessAdapter {
             tokio::time::sleep(delay).await;
 
             // drive main tasks
-            let result = tokio::select! {
+            tokio::select! {
                 r = proc      => r,
                 r = timeout   => r,
-            };
-
-            handle.complete();
-            result
+            }
         };
 
         // submit task
