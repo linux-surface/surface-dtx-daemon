@@ -17,10 +17,72 @@ use anyhow::{Context, Result};
 use futures::prelude::*;
 
 use sdtx::event;
-use sdtx::{Event, LatchStatus};
+use sdtx::LatchStatus;
 use sdtx_tokio::Device;
 
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
 use tracing::{debug, error, trace, warn};
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Event {
+    Request,
+
+    DetachConfirm,
+
+    DetachCancel,
+
+    Attached,
+
+    Cancel {
+        reason: event::CancelReason,
+    },
+
+    BaseConnection {
+        state: event::BaseState,
+        device_type: DeviceType,
+        id: u8,
+    },
+
+    LatchStatus {
+        status: event::LatchStatus,
+    },
+
+    DeviceMode {
+        mode: event::DeviceMode,
+    },
+
+    Unknown {
+        code: u16,
+        data: Vec<u8>,
+    },
+}
+
+impl From<sdtx::Event> for Event {
+    fn from(event: sdtx::Event) -> Self {
+        match event {
+            sdtx::Event::Request => {
+                Self::Request
+            },
+            sdtx::Event::Cancel { reason } => {
+                Self::Cancel { reason }
+            },
+            sdtx::Event::BaseConnection { state, device_type, id } => {
+                Self::BaseConnection { state, device_type, id }
+            },
+            sdtx::Event::LatchStatus { status } => {
+                Self::LatchStatus { status }
+            },
+            sdtx::Event::DeviceMode { mode } => {
+                Self::DeviceMode { mode }
+            },
+            sdtx::Event::Unknown { code, data } => {
+                Self::Unknown { code, data }
+            },
+        }
+    }
+}
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,12 +102,14 @@ struct CoreState {
 
 pub struct Core<A> {
     device: Arc<Device>,
+    inject_rx: UnboundedReceiver<Event>,
+    inject_tx: UnboundedSender<Event>,
     state: CoreState,
     adapter: A,
 }
 
 impl<A: Adapter> Core<A> {
-    pub fn new(device: Arc<Device>, adapter: A) -> Self {
+    pub fn new(device: Device, adapter: A) -> Self {
         let state = CoreState {
             base: BaseState::Attached,
             latch: LatchState::Closed,
@@ -53,7 +117,10 @@ impl<A: Adapter> Core<A> {
             needs_attachment: false,
         };
 
-        Self { device, state, adapter }
+        let device = Arc::new(device);
+        let (inject_tx, inject_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        Self { device, inject_rx, inject_tx, state, adapter }
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -63,7 +130,8 @@ impl<A: Adapter> Core<A> {
         trace!(target: "sdtxd::core", "enabling events");
 
         let mut events = evdev.events_async()
-            .context("DTX device error")?;
+            .context("DTX device error")?
+            .map(|r| r.map(Event::from));
 
         // Update our state before we start handling events but after we've
         // enabled them. This way, we can ensure that we don't miss any
@@ -93,8 +161,20 @@ impl<A: Adapter> Core<A> {
 
         // handle events
         trace!(target: "sdtxd::core", "running event loop");
-        while let Some(evt) = events.next().await {
-            self.handle(evt.context("DTX device error")?)?;
+        loop {
+            let event = tokio::select! {
+                event = self.inject_rx.recv() => event,
+                event = events.next() => {
+                    event.map_or(Ok(None), |r| r.map(Some))
+                        .context("DTX device error")?
+                },
+            };
+
+            if let Some(event) = event {
+                self.handle(event)?;
+            } else {
+                break;
+            }
         }
 
         Ok(())
@@ -106,6 +186,15 @@ impl<A: Adapter> Core<A> {
         match event {
             Event::Request => {
                 self.on_request()
+            },
+            Event::DetachConfirm => {
+                self.on_detach_confirm()
+            },
+            Event::DetachCancel => {
+                self.on_detach_cancel()
+            },
+            Event::Attached => {
+                self.on_attached()
             },
             Event::Cancel { reason } => {
                 self.on_cancel(reason)
@@ -170,7 +259,40 @@ impl<A: Adapter> Core<A> {
         // commence detachment
         debug!(target: "sdtxd::core", "detachment requested");
 
-        self.adapter.detachment_start()
+        let handle = DtHandle { device: self.device.clone(), inject: self.inject_tx.clone() };
+        self.adapter.detachment_start(handle)
+    }
+
+    fn on_detach_confirm(&mut self) -> Result<()> {
+        // internal event, sent by adapter when confirming latch open
+
+        if self.state.ec != EcState::InProgress {
+            debug!(target: "sdtxd::core", "logic error: confirmation sent while no detachment in progress");
+            return Ok(());
+        }
+
+        debug!(target: "sdtxd::core", "confirming detachment");
+        self.state.ec = EcState::Confirmed;
+
+        self.device.latch_confirm().context("DTX device error")
+    }
+
+    fn on_detach_cancel(&mut self) -> Result<()> {
+        // internal event, sent by adapter when confirming latch open
+
+        if self.state.ec != EcState::InProgress {
+            debug!(target: "sdtxd::core", "logic error: cancellation sent while no detachment in progress");
+            return Ok(());
+        }
+
+        debug!(target: "sdtxd::core", "canceling detachment");
+        self.device.latch_cancel().context("DTX device error")
+    }
+
+    fn on_attached(&mut self) -> Result<()> {
+        // internal event, sent by adapter when attachment is completed
+        debug!(target: "sdtxd::core", "attachment complete");
+        self.adapter.attachment_complete()
     }
 
     fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
@@ -249,7 +371,9 @@ impl<A: Adapter> Core<A> {
                         debug!(target: "sdtxd::core", "base attached, starting attachment process");
 
                         self.state.needs_attachment = false;
-                        self.adapter.attachment_complete()
+
+                        let handle = AtHandle { inject: self.inject_tx.clone() };
+                        self.adapter.attachment_start(handle)
                     },
                     LatchState::Opened => {
                         debug!(target: "sdtxd::core", "base attached, deferring attachment");
@@ -362,7 +486,9 @@ impl<A: Adapter> Core<A> {
 
             debug!(target: "sdtxd::core", "running deferred attachment process now");
             self.state.needs_attachment = false;
-            self.adapter.attachment_complete()
+
+            let handle = AtHandle { inject: self.inject_tx.clone() };
+            self.adapter.attachment_start(handle)
         }
     }
 
@@ -380,6 +506,35 @@ impl<A: Adapter> Core<A> {
 }
 
 
+#[derive(Clone)]
+pub struct DtHandle {
+    device: Arc<Device>,
+    inject: UnboundedSender<Event>,
+}
+
+impl DtHandle {
+    pub fn confirm(&self) {
+        let _ = self.inject.send(Event::DetachConfirm);
+    }
+
+    pub fn cancel(&self) {
+        let _ = self.inject.send(Event::DetachCancel);
+    }
+}
+
+
+#[derive(Clone)]
+pub struct AtHandle {
+    inject: UnboundedSender<Event>,
+}
+
+impl AtHandle {
+    pub fn complete(&self) {
+        let _ = self.inject.send(Event::Attached);
+    }
+}
+
+
 #[allow(unused)]
 pub trait Adapter {
     fn set_state(&mut self, mode: DeviceMode, base: BaseInfo, latch: LatchState) { }
@@ -388,7 +543,7 @@ pub trait Adapter {
         Ok(())
     }
 
-    fn detachment_start(&mut self) -> Result<()> {
+    fn detachment_start(&mut self, handle: DtHandle) -> Result<()> {
         Ok(())
     }
 
@@ -401,6 +556,10 @@ pub trait Adapter {
     }
 
     fn detachment_unexpected(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn attachment_start(&mut self, handle: AtHandle) -> Result<()> {
         Ok(())
     }
 
@@ -437,9 +596,9 @@ macro_rules! impl_adapter_for_tuple {
                 Ok(())
             }
 
-            fn detachment_start(&mut self) -> Result<()> {
+            fn detachment_start(&mut self, handle: DtHandle) -> Result<()> {
                 let ($($name,)+) = self;
-                ($($name.detachment_start()?,)+);
+                ($($name.detachment_start(handle.clone())?,)+);
                 Ok(())
             }
 
@@ -458,6 +617,12 @@ macro_rules! impl_adapter_for_tuple {
             fn detachment_unexpected(&mut self) -> Result<()> {
                 let ($($name,)+) = self;
                 ($($name.detachment_unexpected()?,)+);
+                Ok(())
+            }
+
+            fn attachment_start(&mut self, handle: AtHandle) -> Result<()> {
+                let ($($name,)+) = self;
+                ($($name.attachment_start(handle.clone())?,)+);
                 Ok(())
             }
 

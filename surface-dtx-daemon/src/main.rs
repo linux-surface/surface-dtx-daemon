@@ -122,9 +122,8 @@ async fn run() -> Result<()> {
     // set up event handler
     trace!(target: "sdtxd", "setting up DTX event handling");
 
-    let device = Arc::new(event_device);
-    let adapter = logic::ProcessAdapter::new(config, device.clone(), queue_tx);
-    let mut core = logic::Core::new(device, adapter);
+    let adapter = logic::ProcessAdapter::new(config, queue_tx);
+    let mut core = logic::Core::new(event_device, adapter);
     let mut event_task = tokio::spawn(async move { core.run().await }).guard();
 
     // collect main driver tasks

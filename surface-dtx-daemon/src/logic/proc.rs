@@ -1,13 +1,19 @@
 use crate::config::Config;
-use crate::logic::{Adapter, BaseInfo, CancelReason, DeviceMode, LatchState};
+use crate::logic::{
+    Adapter,
+    AtHandle,
+    BaseInfo,
+    CancelReason,
+    DtHandle,
+    DeviceMode,
+    LatchState,
+};
 use crate::tq::TaskSender;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Error, Result};
-
-use sdtx_tokio::Device;
 
 use tokio::process::Command;
 
@@ -51,16 +57,14 @@ impl From<std::process::ExitStatus> for ExitStatus {
 
 pub struct ProcessAdapter {
     config: Config,
-    device: Arc<Device>,
     queue: TaskSender<Error>,
     state: Arc<Mutex<RuntimeState>>,
 }
 
 impl ProcessAdapter {
-    pub fn new(config: Config, device: Arc<Device>, queue: TaskSender<Error>) -> Self {
+    pub fn new(config: Config, queue: TaskSender<Error>) -> Self {
         Self {
             config,
-            device,
             queue,
             state: Arc::new(Mutex::new(RuntimeState::Ready)),
         }
@@ -72,7 +76,7 @@ impl Adapter for ProcessAdapter {
         *self.state.lock().unwrap() = RuntimeState::Ready;
     }
 
-    fn detachment_start(&mut self) -> Result<()> {
+    fn detachment_start(&mut self, handle: DtHandle) -> Result<()> {
         // state transition
         {
             let mut state = self.state.lock().unwrap();
@@ -81,7 +85,7 @@ impl Adapter for ProcessAdapter {
             if *state != RuntimeState::Ready {
                 debug!(target: "sdtxd::proc", "request: already processing, canceling this request");
 
-                self.device.latch_cancel().context("DTX device error")?;
+                handle.cancel();
                 return Ok(());
             }
 
@@ -92,7 +96,6 @@ impl Adapter for ProcessAdapter {
 
         // build process task
         let state = self.state.clone();
-        let device = self.device.clone();
         let dir = self.config.dir.clone();
         let handler = self.config.handler.detach.clone();
         let task = async move {
@@ -125,10 +128,10 @@ impl Adapter for ProcessAdapter {
             if *state.lock().unwrap() == RuntimeState::Detaching {
                 if status == ExitStatus::Commence {
                     debug!(target: "sdtxd::proc", "detachment commencing based on handler response");
-                    device.latch_confirm().context("DTX device error")?;
+                    handle.confirm();
                 } else {
                     debug!(target: "sdtxd::proc", "detachment canceled based on handler response");
-                    device.latch_cancel().context("DTX device error")?;
+                    handle.cancel();
                 }
             } else {
                 debug!(target: "sdtxd::proc", "detachment has already been canceled, skipping");
@@ -207,12 +210,11 @@ impl Adapter for ProcessAdapter {
         Ok(())
     }
 
-    fn attachment_complete(&mut self) -> Result<()> {
+    fn attachment_start(&mut self, handle: AtHandle) -> Result<()> {
         // state transition
         *self.state.lock().unwrap() = RuntimeState::Attaching;
 
         // build task
-        let state = self.state.clone();
         let dir = self.config.dir.clone();
         let handler = self.config.handler.attach.clone();
         let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
@@ -241,7 +243,7 @@ impl Adapter for ProcessAdapter {
             };
 
             trace!(target: "sdtxd::proc", "attachment process completed");
-            *state.lock().unwrap() = RuntimeState::Ready;
+            handle.complete();
 
             Ok(())
         };
@@ -254,8 +256,12 @@ impl Adapter for ProcessAdapter {
 
         Ok(())
     }
-}
 
+    fn attachment_complete(&mut self) -> Result<()> {
+        *self.state.lock().unwrap() = RuntimeState::Ready;
+        Ok(())
+    }
+}
 
 
 trait ProcessOutputExt {

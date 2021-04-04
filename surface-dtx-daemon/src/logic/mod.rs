@@ -1,5 +1,5 @@
 mod core;
-pub use self::core::{Adapter, Core};
+pub use self::core::{Adapter, AtHandle, Core, DtHandle};
 
 mod proc;
 pub use self::proc::ProcessAdapter;
