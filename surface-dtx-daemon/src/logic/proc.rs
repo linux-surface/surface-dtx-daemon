@@ -15,7 +15,7 @@ use tokio::process::Command;
 use tracing::{Level, debug, trace};
 
 
-const HEARTBEAT_PERIOD_MS: u64 = 2000;
+const HEARTBEAT_PERIOD_MS: u64 = 2500;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
