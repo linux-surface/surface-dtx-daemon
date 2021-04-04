@@ -59,12 +59,19 @@ impl ProcessAdapter {
 
 impl Adapter for ProcessAdapter {
     fn detachment_start(&mut self, handle: DtHandle) -> Result<()> {
-        // TODO: heartbeat
+        // build heartbeat task
+        let h = handle.clone();
+        let heartbeat = async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::new(2, 0)).await;
+                h.heartbeat()?;
+            }
+        };
 
         // build process task
         let dir = self.config.dir.clone();
         let handler = self.config.handler.detach.clone();
-        let task = async move {
+        let proc = async move {
             trace!(target: "sdtxd::proc", "detachment process started");
 
             // run handler if specified
@@ -101,6 +108,14 @@ impl Adapter for ProcessAdapter {
 
             trace!(target: "sdtxd::proc", "detachment process completed");
             Ok(())
+        };
+
+        // build task
+        let task = async move {
+            tokio::select! {
+                r = proc      => r,
+                r = heartbeat => r,
+            }
         };
 
         // submit task

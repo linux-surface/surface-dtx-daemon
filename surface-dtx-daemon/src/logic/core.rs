@@ -605,6 +605,11 @@ impl DtHandle {
     pub fn cancel(&self) {
         let _ = self.inject.send(Event::DetachCancel);
     }
+
+    pub fn heartbeat(&self) -> Result<()> {
+        debug!(target: "sdtxd::core", "sending heartbeat");
+        self.device.latch_heartbeat().context("DTX device error")
+    }
 }
 
 
