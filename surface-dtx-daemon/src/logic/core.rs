@@ -95,10 +95,19 @@ enum EcState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeState {
+    Ready,
+    Detaching,
+    Canceling,
+    Attaching,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CoreState {
     base: BaseState,
     latch: LatchState,
     ec: EcState,
+    rt: RuntimeState,
     needs_attachment: bool,
 }
 
@@ -116,6 +125,7 @@ impl<A: Adapter> Core<A> {
             base: BaseState::Attached,
             latch: LatchState::Closed,
             ec: EcState::Ready,
+            rt: RuntimeState::Ready,
             needs_attachment: false,
         };
 
@@ -158,6 +168,7 @@ impl<A: Adapter> Core<A> {
         self.state.base = base.state;
         self.state.latch = latch;
         self.state.ec = ec;
+        self.state.rt = RuntimeState::Ready;
 
         self.adapter.set_state(mode, base, latch);
 
@@ -233,8 +244,12 @@ impl<A: Adapter> Core<A> {
 
                 self.state.ec = EcState::Ready;
 
-                let handle = DtcHandle { inject: self.inject_tx.clone() };
-                self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
+                if self.state.rt == RuntimeState::Detaching {
+                    self.state.rt = RuntimeState::Canceling;
+
+                    let handle = DtcHandle { inject: self.inject_tx.clone() };
+                    self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
+                }
             }
 
             return Ok(());
@@ -263,6 +278,14 @@ impl<A: Adapter> Core<A> {
             return self.adapter.request_canceled(reason);
         }
 
+        // if there is already a detachment in progress, cancel
+        if self.state.rt != RuntimeState::Ready {
+            debug!(target: "sdtxd::core", "request: already processing, canceling this request");
+            return self.device.latch_cancel().context("DTX device error")
+        }
+
+        self.state.rt = RuntimeState::Detaching;
+
         // commence detachment
         debug!(target: "sdtxd::core", "detachment requested");
 
@@ -274,7 +297,12 @@ impl<A: Adapter> Core<A> {
         // internal event, sent by adapter when confirming latch open
 
         if self.state.ec != EcState::InProgress {
-            debug!(target: "sdtxd::core", "logic error: confirmation sent while no detachment in progress");
+            debug!(target: "sdtxd::core", "confirmation sent while no detachment in progress");
+            return Ok(());
+        }
+
+        if self.state.rt != RuntimeState::Detaching {
+            debug!(target: "sdtxd::core", "detachment has already been canceled, ignoring");
             return Ok(());
         }
 
@@ -288,7 +316,12 @@ impl<A: Adapter> Core<A> {
         // internal event, sent by adapter when canceling latch open
 
         if self.state.ec != EcState::InProgress {
-            debug!(target: "sdtxd::core", "logic error: cancellation sent while no detachment in progress");
+            debug!(target: "sdtxd::core", "cancellation sent while no detachment in progress");
+            return Ok(());
+        }
+
+        if self.state.rt != RuntimeState::Detaching {
+            debug!(target: "sdtxd::core", "detachment has already been canceled, ignoring");
             return Ok(());
         }
 
@@ -299,12 +332,14 @@ impl<A: Adapter> Core<A> {
     fn on_attach_complete(&mut self) -> Result<()> {
         // internal event, sent by adapter when attachment is completed
         debug!(target: "sdtxd::core", "attachment complete");
+        self.state.rt = RuntimeState::Ready;
         self.adapter.attachment_complete()
     }
 
     fn on_cancel_complete(&mut self) -> Result<()> {
         // internal event, sent by adapter when detach-abort is completed
         debug!(target: "sdtxd::core", "detachment cancellation complete");
+        self.state.rt = RuntimeState::Ready;
         self.adapter.detachment_cancel_complete()
     }
 
@@ -324,9 +359,15 @@ impl<A: Adapter> Core<A> {
                 // reset EC state
                 self.state.ec = EcState::Ready;
 
-                // cancel current detachment procedure
-                let handle = DtcHandle { inject: self.inject_tx.clone() };
-                self.adapter.detachment_cancel_start(handle, reason)
+                // cancel current detachment procedure, if in progress
+                if self.state.rt == RuntimeState::Detaching {
+                    self.state.rt = RuntimeState::Canceling;
+
+                    let handle = DtcHandle { inject: self.inject_tx.clone() };
+                    self.adapter.detachment_cancel_start(handle, reason)?;
+                }
+
+                Ok(())
             },
         }
     }
@@ -385,6 +426,7 @@ impl<A: Adapter> Core<A> {
                         debug!(target: "sdtxd::core", "base attached, starting attachment process");
 
                         self.state.needs_attachment = false;
+                        self.state.rt = RuntimeState::Attaching;
 
                         let handle = AtHandle { inject: self.inject_tx.clone() };
                         self.adapter.attachment_start(handle)
@@ -471,6 +513,7 @@ impl<A: Adapter> Core<A> {
             // we normally expect the detachment procedure to end with.
             debug!(target: "sdtxd::core", "detachment completed via latch close");
 
+            self.state.rt = RuntimeState::Ready;
             self.adapter.detachment_complete()
 
         } else if !self.state.needs_attachment {
@@ -484,12 +527,18 @@ impl<A: Adapter> Core<A> {
             if ec != EcState::Ready {
                 debug!(target: "sdtxd::core", "detachment canceled via latch close");
 
-                let handle = DtcHandle { inject: self.inject_tx.clone() };
-                self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)
+                // cancel current detachment procedure, if in progress
+                if self.state.rt == RuntimeState::Detaching {
+                    self.state.rt = RuntimeState::Canceling;
+
+                    let handle = DtcHandle { inject: self.inject_tx.clone() };
+                    self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
+                }
             } else {
                 debug!(target: "sdtxd::core", "detachment already canceled before latch closed");
-                Ok(())
             }
+
+            Ok(())
 
         } else {
             // The latch has been opened and before it has been closed again
@@ -497,10 +546,12 @@ impl<A: Adapter> Core<A> {
             // re-attached. Complete the detachment procedure and notify the
             // adapter that an attachmend has occured.
             debug!(target: "sdtxd::core", "detachment completed via latch close");
+            self.state.rt = RuntimeState::Ready;
             self.adapter.detachment_complete()?;
 
             debug!(target: "sdtxd::core", "running deferred attachment process now");
             self.state.needs_attachment = false;
+            self.state.rt = RuntimeState::Attaching;
 
             let handle = AtHandle { inject: self.inject_tx.clone() };
             self.adapter.attachment_start(handle)

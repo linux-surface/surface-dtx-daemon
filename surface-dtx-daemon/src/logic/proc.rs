@@ -2,16 +2,12 @@ use crate::config::Config;
 use crate::logic::{
     Adapter,
     AtHandle,
-    BaseInfo,
     CancelReason,
     DtHandle,
     DtcHandle,
-    DeviceMode,
-    LatchState,
 };
 use crate::tq::TaskSender;
 
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Error, Result};
@@ -19,15 +15,6 @@ use anyhow::{Context, Error, Result};
 use tokio::process::Command;
 
 use tracing::{Level, debug, trace};
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RuntimeState {
-    Ready,
-    Detaching,
-    Aborting,
-    Attaching,
-}
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +46,6 @@ impl From<std::process::ExitStatus> for ExitStatus {
 pub struct ProcessAdapter {
     config: Config,
     queue: TaskSender<Error>,
-    state: Arc<Mutex<RuntimeState>>,
 }
 
 impl ProcessAdapter {
@@ -67,36 +53,15 @@ impl ProcessAdapter {
         Self {
             config,
             queue,
-            state: Arc::new(Mutex::new(RuntimeState::Ready)),
         }
     }
 }
 
 impl Adapter for ProcessAdapter {
-    fn set_state(&mut self, _mode: DeviceMode, _base: BaseInfo, _latch: LatchState) {
-        *self.state.lock().unwrap() = RuntimeState::Ready;
-    }
-
     fn detachment_start(&mut self, handle: DtHandle) -> Result<()> {
-        // state transition
-        {
-            let mut state = self.state.lock().unwrap();
-
-            // if any subprocess is running (attach/abort), cancel the (new) request
-            if *state != RuntimeState::Ready {
-                debug!(target: "sdtxd::proc", "request: already processing, canceling this request");
-
-                handle.cancel();
-                return Ok(());
-            }
-
-            *state = RuntimeState::Detaching;
-        }
-
         // TODO: heartbeat
 
         // build process task
-        let state = self.state.clone();
         let dir = self.config.dir.clone();
         let handler = self.config.handler.detach.clone();
         let task = async move {
@@ -125,17 +90,13 @@ impl Adapter for ProcessAdapter {
                 ExitStatus::Commence
             };
 
-            // send response only if detachment has not been canceled already
-            if *state.lock().unwrap() == RuntimeState::Detaching {
-                if status == ExitStatus::Commence {
-                    debug!(target: "sdtxd::proc", "detachment commencing based on handler response");
-                    handle.confirm();
-                } else {
-                    debug!(target: "sdtxd::proc", "detachment canceled based on handler response");
-                    handle.cancel();
-                }
+            // send response, will be ignored if already canceled
+            if status == ExitStatus::Commence {
+                debug!(target: "sdtxd::proc", "detachment commencing based on handler response");
+                handle.confirm();
             } else {
-                debug!(target: "sdtxd::proc", "detachment has already been canceled, skipping");
+                debug!(target: "sdtxd::proc", "detachment canceled based on handler response");
+                handle.cancel();
             }
 
             trace!(target: "sdtxd::proc", "detachment process completed");
@@ -151,27 +112,7 @@ impl Adapter for ProcessAdapter {
         Ok(())
     }
 
-    fn detachment_complete(&mut self) -> Result<()> {
-        *self.state.lock().unwrap() = RuntimeState::Ready;
-        Ok(())
-    }
-
     fn detachment_cancel_start(&mut self, handle: DtcHandle, _reason: CancelReason) -> Result<()> {
-        // state transition
-        {
-            let mut state = self.state.lock().unwrap();
-
-            // We might have canceled in detachment_start() while the EC itself
-            // was ready for detachment again. This will lead to a
-            // detachment_cancel() call while we are already aborting. Make
-            // sure that we're only scheduling the abort task once.
-            if *state != RuntimeState::Detaching {
-                return Ok(());
-            }
-
-            *state = RuntimeState::Aborting;
-        }
-
         // build task
         let dir = self.config.dir.clone();
         let handler = self.config.handler.detach_abort.clone();
@@ -210,15 +151,7 @@ impl Adapter for ProcessAdapter {
         Ok(())
     }
 
-    fn detachment_cancel_complete(&mut self) -> Result<()> {
-        *self.state.lock().unwrap() = RuntimeState::Ready;
-        Ok(())
-    }
-
     fn attachment_start(&mut self, handle: AtHandle) -> Result<()> {
-        // state transition
-        *self.state.lock().unwrap() = RuntimeState::Attaching;
-
         // build task
         let dir = self.config.dir.clone();
         let handler = self.config.handler.attach.clone();
@@ -259,11 +192,6 @@ impl Adapter for ProcessAdapter {
             unreachable!("receiver dropped");
         }
 
-        Ok(())
-    }
-
-    fn attachment_complete(&mut self) -> Result<()> {
-        *self.state.lock().unwrap() = RuntimeState::Ready;
         Ok(())
     }
 }
