@@ -5,6 +5,7 @@ use crate::logic::{
     BaseInfo,
     CancelReason,
     DtHandle,
+    DtcHandle,
     DeviceMode,
     LatchState,
 };
@@ -150,7 +151,12 @@ impl Adapter for ProcessAdapter {
         Ok(())
     }
 
-    fn detachment_cancel(&mut self, _reason: CancelReason) -> Result<()> {
+    fn detachment_complete(&mut self) -> Result<()> {
+        *self.state.lock().unwrap() = RuntimeState::Ready;
+        Ok(())
+    }
+
+    fn detachment_cancel_start(&mut self, handle: DtcHandle, _reason: CancelReason) -> Result<()> {
         // state transition
         {
             let mut state = self.state.lock().unwrap();
@@ -167,7 +173,6 @@ impl Adapter for ProcessAdapter {
         }
 
         // build task
-        let state = self.state.clone();
         let dir = self.config.dir.clone();
         let handler = self.config.handler.detach_abort.clone();
         let task = async move {
@@ -191,7 +196,7 @@ impl Adapter for ProcessAdapter {
             };
 
             trace!(target: "sdtxd::proc", "detachment-abort process completed");
-            *state.lock().unwrap() = RuntimeState::Ready;
+            handle.complete();
 
             Ok(())
         };
@@ -205,7 +210,7 @@ impl Adapter for ProcessAdapter {
         Ok(())
     }
 
-    fn detachment_complete(&mut self) -> Result<()> {
+    fn detachment_cancel_complete(&mut self) -> Result<()> {
         *self.state.lock().unwrap() = RuntimeState::Ready;
         Ok(())
     }

@@ -33,7 +33,9 @@ enum Event {
 
     DetachCancel,
 
-    Attached,
+    AttachComplete,
+
+    CancelComplete,
 
     Cancel {
         reason: event::CancelReason,
@@ -193,8 +195,11 @@ impl<A: Adapter> Core<A> {
             Event::DetachCancel => {
                 self.on_detach_cancel()
             },
-            Event::Attached => {
-                self.on_attached()
+            Event::AttachComplete => {
+                self.on_attach_complete()
+            },
+            Event::CancelComplete => {
+                self.on_cancel_complete()
             },
             Event::Cancel { reason } => {
                 self.on_cancel(reason)
@@ -227,7 +232,9 @@ impl<A: Adapter> Core<A> {
                 debug!(target: "sdtxd::core", "request: canceling current request");
 
                 self.state.ec = EcState::Ready;
-                self.adapter.detachment_cancel(CancelReason::UserRequest)?;
+
+                let handle = DtcHandle { inject: self.inject_tx.clone() };
+                self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
             }
 
             return Ok(());
@@ -278,7 +285,7 @@ impl<A: Adapter> Core<A> {
     }
 
     fn on_detach_cancel(&mut self) -> Result<()> {
-        // internal event, sent by adapter when confirming latch open
+        // internal event, sent by adapter when canceling latch open
 
         if self.state.ec != EcState::InProgress {
             debug!(target: "sdtxd::core", "logic error: cancellation sent while no detachment in progress");
@@ -289,10 +296,16 @@ impl<A: Adapter> Core<A> {
         self.device.latch_cancel().context("DTX device error")
     }
 
-    fn on_attached(&mut self) -> Result<()> {
+    fn on_attach_complete(&mut self) -> Result<()> {
         // internal event, sent by adapter when attachment is completed
         debug!(target: "sdtxd::core", "attachment complete");
         self.adapter.attachment_complete()
+    }
+
+    fn on_cancel_complete(&mut self) -> Result<()> {
+        // internal event, sent by adapter when detach-abort is completed
+        debug!(target: "sdtxd::core", "detachment cancellation complete");
+        self.adapter.detachment_cancel_complete()
     }
 
     fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
@@ -312,7 +325,8 @@ impl<A: Adapter> Core<A> {
                 self.state.ec = EcState::Ready;
 
                 // cancel current detachment procedure
-                self.adapter.detachment_cancel(reason)
+                let handle = DtcHandle { inject: self.inject_tx.clone() };
+                self.adapter.detachment_cancel_start(handle, reason)
             },
         }
     }
@@ -470,7 +484,8 @@ impl<A: Adapter> Core<A> {
             if ec != EcState::Ready {
                 debug!(target: "sdtxd::core", "detachment canceled via latch close");
 
-                self.adapter.detachment_cancel(CancelReason::UserRequest)
+                let handle = DtcHandle { inject: self.inject_tx.clone() };
+                self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)
             } else {
                 debug!(target: "sdtxd::core", "detachment already canceled before latch closed");
                 Ok(())
@@ -524,13 +539,25 @@ impl DtHandle {
 
 
 #[derive(Clone)]
+pub struct DtcHandle {
+    inject: UnboundedSender<Event>,
+}
+
+impl DtcHandle {
+    pub fn complete(&self) {
+        let _ = self.inject.send(Event::CancelComplete);
+    }
+}
+
+
+#[derive(Clone)]
 pub struct AtHandle {
     inject: UnboundedSender<Event>,
 }
 
 impl AtHandle {
     pub fn complete(&self) {
-        let _ = self.inject.send(Event::Attached);
+        let _ = self.inject.send(Event::AttachComplete);
     }
 }
 
@@ -547,11 +574,15 @@ pub trait Adapter {
         Ok(())
     }
 
-    fn detachment_cancel(&mut self, reason: CancelReason) -> Result<()> {
+    fn detachment_complete(&mut self) -> Result<()> {
         Ok(())
     }
 
-    fn detachment_complete(&mut self) -> Result<()> {
+    fn detachment_cancel_start(&mut self, handle: DtcHandle, reason: CancelReason) -> Result<()> {
+        Ok(())
+    }
+
+    fn detachment_cancel_complete(&mut self) -> Result<()> {
         Ok(())
     }
 
@@ -602,15 +633,21 @@ macro_rules! impl_adapter_for_tuple {
                 Ok(())
             }
 
-            fn detachment_cancel(&mut self, reason: CancelReason) -> Result<()> {
-                let ($($name,)+) = self;
-                ($($name.detachment_cancel(reason)?,)+);
-                Ok(())
-            }
-
             fn detachment_complete(&mut self) -> Result<()> {
                 let ($($name,)+) = self;
                 ($($name.detachment_complete()?,)+);
+                Ok(())
+            }
+
+            fn detachment_cancel_start(&mut self, handle: DtcHandle, reason: CancelReason) -> Result<()> {
+                let ($($name,)+) = self;
+                ($($name.detachment_cancel_start(handle.clone(), reason)?,)+);
+                Ok(())
+            }
+
+            fn detachment_cancel_complete(&mut self) -> Result<()> {
+                let ($($name,)+) = self;
+                ($($name.detachment_cancel_complete()?,)+);
                 Ok(())
             }
 
