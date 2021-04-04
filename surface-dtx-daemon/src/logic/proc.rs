@@ -17,6 +17,9 @@ use tokio::process::Command;
 use tracing::{Level, debug, trace};
 
 
+const HEARTBEAT_PERIOD_MS: u64 = 2000;
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExitStatus {
     Commence = 0,
@@ -63,7 +66,7 @@ impl Adapter for ProcessAdapter {
         let h = handle.clone();
         let heartbeat = async move {
             loop {
-                tokio::time::sleep(Duration::new(2, 0)).await;
+                tokio::time::sleep(Duration::from_millis(HEARTBEAT_PERIOD_MS)).await;
                 h.heartbeat()?;
             }
         };
