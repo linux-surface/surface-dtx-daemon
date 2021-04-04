@@ -102,13 +102,13 @@ enum RuntimeState {
     Attaching,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 struct CoreState {
-    base: BaseState,
-    latch: LatchState,
-    ec: EcState,
-    rt: RuntimeState,
-    needs_attachment: bool,
+    base:  Trace<BaseState>,
+    latch: Trace<LatchState>,
+    ec:    Trace<EcState>,
+    rt:    Trace<RuntimeState>,
+    needs_attachment: Trace<bool>,
 }
 
 pub struct Core<A> {
@@ -122,11 +122,11 @@ pub struct Core<A> {
 impl<A: Adapter> Core<A> {
     pub fn new(device: Device, adapter: A) -> Self {
         let state = CoreState {
-            base: BaseState::Attached,
-            latch: LatchState::Closed,
-            ec: EcState::Ready,
-            rt: RuntimeState::Ready,
-            needs_attachment: false,
+            base:  Trace::new("state.base", BaseState::Attached),
+            latch: Trace::new("state.latch", LatchState::Closed),
+            ec:    Trace::new("state.ec", EcState::Ready),
+            rt:    Trace::new("state.rt", RuntimeState::Ready),
+            needs_attachment: Trace::new("state.needs_attachment", false),
         };
 
         let device = Arc::new(device);
@@ -165,10 +165,10 @@ impl<A: Adapter> Core<A> {
             LatchState::Opened => EcState::Confirmed,
         };
 
-        self.state.base = base.state;
-        self.state.latch = latch;
-        self.state.ec = ec;
-        self.state.rt = RuntimeState::Ready;
+        self.state.base.set(base.state);
+        self.state.latch.set(latch);
+        self.state.ec.set(ec);
+        self.state.rt.set(RuntimeState::Ready);
 
         self.adapter.set_state(mode, base, latch);
 
@@ -233,19 +233,19 @@ impl<A: Adapter> Core<A> {
 
     fn on_request(&mut self) -> Result<()> {
         // handle cancellation signals
-        if self.state.ec != EcState::Ready {
+        if *self.state.ec != EcState::Ready {
             // reset EC state and abort if the latch is closed; if latch is
             // open or has been requested to be opened, this will be done on
             // the "closed" event
-            if self.state.latch == LatchState::Opened || self.state.ec == EcState::Confirmed {
+            if *self.state.latch == LatchState::Opened || *self.state.ec == EcState::Confirmed {
                 debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
             } else {
                 debug!(target: "sdtxd::core", "request: canceling current request");
 
-                self.state.ec = EcState::Ready;
+                self.state.ec.set(EcState::Ready);
 
-                if self.state.rt == RuntimeState::Detaching {
-                    self.state.rt = RuntimeState::Canceling;
+                if *self.state.rt == RuntimeState::Detaching {
+                    self.state.rt.set(RuntimeState::Canceling);
 
                     let handle = DtcHandle { inject: self.inject_tx.clone() };
                     self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
@@ -256,13 +256,13 @@ impl<A: Adapter> Core<A> {
         }
 
         // if this request is not for cancellation, mark us as in-progress
-        self.state.ec = EcState::InProgress;
+        self.state.ec.set(EcState::InProgress);
 
         // if no base is attached (or not-feasible), cancel
-        if self.state.base != BaseState::Attached {
+        if *self.state.base != BaseState::Attached {
             self.device.latch_cancel().context("DTX device error")?;
 
-            let reason = match self.state.base {
+            let reason = match *self.state.base {
                 BaseState::NotFeasible => {
                     debug!(target: "sdtxd::core", "request: detachment not feasible, low battery");
                     CancelReason::Runtime(RuntimeError::NotFeasible)
@@ -279,12 +279,12 @@ impl<A: Adapter> Core<A> {
         }
 
         // if there is already a detachment in progress, cancel
-        if self.state.rt != RuntimeState::Ready {
+        if *self.state.rt != RuntimeState::Ready {
             debug!(target: "sdtxd::core", "request: already processing, canceling this request");
             return self.device.latch_cancel().context("DTX device error")
         }
 
-        self.state.rt = RuntimeState::Detaching;
+        self.state.rt.set(RuntimeState::Detaching);
 
         // commence detachment
         debug!(target: "sdtxd::core", "detachment requested");
@@ -296,18 +296,18 @@ impl<A: Adapter> Core<A> {
     fn on_detach_confirm(&mut self) -> Result<()> {
         // internal event, sent by adapter when confirming latch open
 
-        if self.state.ec != EcState::InProgress {
+        if *self.state.ec != EcState::InProgress {
             debug!(target: "sdtxd::core", "confirmation sent while no detachment in progress");
             return Ok(());
         }
 
-        if self.state.rt != RuntimeState::Detaching {
+        if *self.state.rt != RuntimeState::Detaching {
             debug!(target: "sdtxd::core", "detachment has already been canceled, ignoring");
             return Ok(());
         }
 
         debug!(target: "sdtxd::core", "confirming detachment");
-        self.state.ec = EcState::Confirmed;
+        self.state.ec.set(EcState::Confirmed);
 
         self.device.latch_confirm().context("DTX device error")
     }
@@ -315,12 +315,12 @@ impl<A: Adapter> Core<A> {
     fn on_detach_cancel(&mut self) -> Result<()> {
         // internal event, sent by adapter when canceling latch open
 
-        if self.state.ec != EcState::InProgress {
+        if *self.state.ec != EcState::InProgress {
             debug!(target: "sdtxd::core", "cancellation sent while no detachment in progress");
             return Ok(());
         }
 
-        if self.state.rt != RuntimeState::Detaching {
+        if *self.state.rt != RuntimeState::Detaching {
             debug!(target: "sdtxd::core", "detachment has already been canceled, ignoring");
             return Ok(());
         }
@@ -332,21 +332,21 @@ impl<A: Adapter> Core<A> {
     fn on_attach_complete(&mut self) -> Result<()> {
         // internal event, sent by adapter when attachment is completed
         debug!(target: "sdtxd::core", "attachment complete");
-        self.state.rt = RuntimeState::Ready;
+        self.state.rt.set(RuntimeState::Ready);
         self.adapter.attachment_complete()
     }
 
     fn on_cancel_complete(&mut self) -> Result<()> {
         // internal event, sent by adapter when detach-abort is completed
         debug!(target: "sdtxd::core", "detachment cancellation complete");
-        self.state.rt = RuntimeState::Ready;
+        self.state.rt.set(RuntimeState::Ready);
         self.adapter.detachment_cancel_complete()
     }
 
     fn on_cancel(&mut self, reason: event::CancelReason) -> Result<()> {
         let reason = CancelReason::from(reason);
 
-        match self.state.ec {
+        match *self.state.ec {
             EcState::Ready => {                             // no detachment in progress
                 debug!(target: "sdtxd::core", %reason, "cancel: detachment prevented");
 
@@ -357,11 +357,11 @@ impl<A: Adapter> Core<A> {
                 debug!(target: "sdtxd::core", %reason, "cancel: detachment canceled");
 
                 // reset EC state
-                self.state.ec = EcState::Ready;
+                self.state.ec.set(EcState::Ready);
 
                 // cancel current detachment procedure, if in progress
-                if self.state.rt == RuntimeState::Detaching {
-                    self.state.rt = RuntimeState::Canceling;
+                if *self.state.rt == RuntimeState::Detaching {
+                    self.state.rt.set(RuntimeState::Canceling);
 
                     let handle = DtcHandle { inject: self.inject_tx.clone() };
                     self.adapter.detachment_cancel_start(handle, reason)?;
@@ -385,10 +385,10 @@ impl<A: Adapter> Core<A> {
         };
 
         // update state, return if it hasn't changed
-        if self.state.base == state {
+        if *self.state.base == state {
             return Ok(());
         }
-        let old = std::mem::replace(&mut self.state.base, state);
+        let old = self.state.base.replace(state);
 
         debug!(target: "sdtxd::core", ?state, ?ty, id, "base: state changed");
 
@@ -398,7 +398,7 @@ impl<A: Adapter> Core<A> {
         // handle actual transition
         match (old, state) {
             (_, BaseState::Detached) => {       // disconnected
-                if self.state.latch == LatchState::Closed {
+                if *self.state.latch == LatchState::Closed {
                     // If the latch is closed, we don't expect any disconnect.
                     // This is either the user forcefully removing the
                     // clipboard, or incorrect reporting from the EC.
@@ -406,7 +406,7 @@ impl<A: Adapter> Core<A> {
 
                     self.adapter.detachment_unexpected()
 
-                } else if self.state.ec == EcState::Ready {
+                } else if *self.state.ec == EcState::Ready {
                     // If the latch is open, we expect the EC state to be
                     // in-progress or confirmed. This is either a logic error
                     // or incorrect reporting from the EC.
@@ -421,12 +421,12 @@ impl<A: Adapter> Core<A> {
             (BaseState::Detached, _) => {       // connected
                 // if latch is closed, start attachment process, otherwise wait
                 // for latch to close before starting that
-                match self.state.latch {
+                match *self.state.latch {
                     LatchState::Closed => {
                         debug!(target: "sdtxd::core", "base attached, starting attachment process");
 
-                        self.state.needs_attachment = false;
-                        self.state.rt = RuntimeState::Attaching;
+                        self.state.needs_attachment.set(false);
+                        self.state.rt.set(RuntimeState::Attaching);
 
                         let handle = AtHandle { inject: self.inject_tx.clone() };
                         self.adapter.attachment_start(handle)
@@ -434,7 +434,7 @@ impl<A: Adapter> Core<A> {
                     LatchState::Opened => {
                         debug!(target: "sdtxd::core", "base attached, deferring attachment");
 
-                        self.state.needs_attachment = true;
+                        self.state.needs_attachment.set(true);
                         Ok(())
                     },
                 }
@@ -479,16 +479,16 @@ impl<A: Adapter> Core<A> {
         };
 
         // reset EC state if closed
-        let ec = self.state.ec;
+        let ec = *self.state.ec;
         if state == LatchState::Closed {
-            self.state.ec = EcState::Ready;
+            self.state.ec.set(EcState::Ready);
         }
 
         // update state, return if it hasn't changed
-        if self.state.latch == state {
+        if *self.state.latch == state {
             return Ok(());
         }
-        self.state.latch = state;
+        self.state.latch.set(state);
 
         debug!(target: "sdtxd::core", ?status, "latch: status changed");
 
@@ -508,15 +508,15 @@ impl<A: Adapter> Core<A> {
         }
 
         // Finish detachment process when latch has been closed.
-        if self.state.base == BaseState::Detached {
+        if *self.state.base == BaseState::Detached {
             // The latch has been closed and the base is detached. This is what
             // we normally expect the detachment procedure to end with.
             debug!(target: "sdtxd::core", "detachment completed via latch close");
 
-            self.state.rt = RuntimeState::Ready;
+            self.state.rt.set(RuntimeState::Ready);
             self.adapter.detachment_complete()
 
-        } else if !self.state.needs_attachment {
+        } else if !*self.state.needs_attachment {
             // The latch has been opened and closed without the tablet being
             // detached. This is either due to the latch-close timeout or
             // (accelerated by) the user pressing the request button again.
@@ -528,8 +528,8 @@ impl<A: Adapter> Core<A> {
                 debug!(target: "sdtxd::core", "detachment canceled via latch close");
 
                 // cancel current detachment procedure, if in progress
-                if self.state.rt == RuntimeState::Detaching {
-                    self.state.rt = RuntimeState::Canceling;
+                if *self.state.rt == RuntimeState::Detaching {
+                    self.state.rt.set(RuntimeState::Canceling);
 
                     let handle = DtcHandle { inject: self.inject_tx.clone() };
                     self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
@@ -546,12 +546,12 @@ impl<A: Adapter> Core<A> {
             // re-attached. Complete the detachment procedure and notify the
             // adapter that an attachmend has occured.
             debug!(target: "sdtxd::core", "detachment completed via latch close");
-            self.state.rt = RuntimeState::Ready;
+            self.state.rt.set(RuntimeState::Ready);
             self.adapter.detachment_complete()?;
 
             debug!(target: "sdtxd::core", "running deferred attachment process now");
-            self.state.needs_attachment = false;
-            self.state.rt = RuntimeState::Attaching;
+            self.state.needs_attachment.set(false);
+            self.state.rt.set(RuntimeState::Attaching);
 
             let handle = AtHandle { inject: self.inject_tx.clone() };
             self.adapter.attachment_start(handle)
@@ -744,3 +744,40 @@ macro_rules! impl_adapter_for_tuple {
 impl_adapter_for_tuple! { A1 }
 impl_adapter_for_tuple! { A1 A2 }
 impl_adapter_for_tuple! { A1 A2 A3 }
+
+
+#[derive(Debug)]
+struct Trace<T> {
+    name: &'static str,
+    value: T,
+}
+
+impl<T: std::fmt::Debug> Trace<T> {
+    fn new(name: &'static str, value: T) -> Self {
+        Self { name, value }
+    }
+
+    fn set(&mut self, value: T) {
+        trace!(target: "sdtxd::core", old=?self.value, new=?value, "changed {}", self.name);
+        self.value = value;
+    }
+
+    fn replace(&mut self, value: T) -> T {
+        trace!(target: "sdtxd::core", old=?self.value, new=?value, "changed {}", self.name);
+        std::mem::replace(&mut self.value, value)
+    }
+}
+
+impl<T> std::ops::Deref for Trace<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> std::ops::DerefMut for Trace<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
