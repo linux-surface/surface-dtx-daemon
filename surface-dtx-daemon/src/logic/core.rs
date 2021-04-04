@@ -25,8 +25,9 @@ use tracing::{debug, error, trace, warn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EcState {
-    Ready,
-    InProgress,
+    Ready,          // ready for new detachment request
+    InProgress,     // detachment in progress, waiting for confirmation or cancellation
+    Confirmed,      // detachment in progress and confirmed
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +82,7 @@ impl<A: Adapter> Core<A> {
 
         let ec = match latch {
             LatchState::Closed => EcState::Ready,
-            LatchState::Opened => EcState::InProgress,
+            LatchState::Opened => EcState::Confirmed,
         };
 
         self.state.base = base.state;
@@ -127,21 +128,20 @@ impl<A: Adapter> Core<A> {
 
     fn on_request(&mut self) -> Result<()> {
         // handle cancellation signals
-        if self.state.ec == EcState::InProgress {
+        if self.state.ec != EcState::Ready {
             // reset EC state and abort if the latch is closed; if latch is
-            // open, this will be done on the "closed" event
-            return match self.state.latch {
-                LatchState::Opened => {
-                    debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
-                    Ok(())
-                },
-                LatchState::Closed => {
-                    debug!(target: "sdtxd::core", "request: canceling current request");
+            // open or has been requested to be opened, this will be done on
+            // the "closed" event
+            if self.state.latch == LatchState::Opened || self.state.ec == EcState::Confirmed {
+                debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
+            } else {
+                debug!(target: "sdtxd::core", "request: canceling current request");
 
-                    self.state.ec = EcState::Ready;
-                    self.adapter.detachment_cancel(CancelReason::UserRequest)
-                },
+                self.state.ec = EcState::Ready;
+                self.adapter.detachment_cancel(CancelReason::UserRequest)?;
             }
+
+            return Ok(());
         }
 
         // if this request is not for cancellation, mark us as in-progress
@@ -177,13 +177,13 @@ impl<A: Adapter> Core<A> {
         let reason = CancelReason::from(reason);
 
         match self.state.ec {
-            EcState::Ready => {         // no detachment in progress
+            EcState::Ready => {                             // no detachment in progress
                 debug!(target: "sdtxd::core", %reason, "cancel: detachment prevented");
 
                 // forward to adapter
                 self.adapter.request_canceled(reason)
             },
-            EcState::InProgress => {    // detachment in progress
+            EcState::InProgress | EcState::Confirmed => {   // detachment in progress
                 debug!(target: "sdtxd::core", %reason, "cancel: detachment canceled");
 
                 // reset EC state
@@ -229,10 +229,10 @@ impl<A: Adapter> Core<A> {
 
                     self.adapter.detachment_unexpected()
 
-                } else if self.state.ec != EcState::InProgress {
+                } else if self.state.ec == EcState::Ready {
                     // If the latch is open, we expect the EC state to be
-                    // in-progress. This is either a logic error or incorrect
-                    // reporting from the EC.
+                    // in-progress or confirmed. This is either a logic error
+                    // or incorrect reporting from the EC.
                     error!(target: "sdtxd::core", "unexpected disconnect: detachment not \
                            in-progress but latch is open");
 
@@ -343,7 +343,7 @@ impl<A: Adapter> Core<A> {
             // It might be possible that we have already canceled the
             // detachment procedure via a cancel event. Only tell the adapter
             // if we haven't done so yet.
-            if ec == EcState::InProgress {
+            if ec != EcState::Ready {
                 debug!(target: "sdtxd::core", "detachment canceled via latch close");
 
                 self.adapter.detachment_cancel(CancelReason::UserRequest)
