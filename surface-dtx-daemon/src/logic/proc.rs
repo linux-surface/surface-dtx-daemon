@@ -17,6 +17,9 @@ use tokio::process::Command;
 use tracing::{Level, debug, trace};
 
 
+const TASK_TIMEOUT_SECS: u64 = 30;
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExitStatus {
     Commence = 0,
@@ -68,6 +71,17 @@ impl Adapter for ProcessAdapter {
             }
         };
 
+        // build timeout task
+        let h = handle.clone();
+        let timeout = async move {
+            tokio::time::sleep(std::time::Duration::new(TASK_TIMEOUT_SECS, 0)).await;
+
+            trace!(target: "sdtxd::proc", "detachment process timed out, canceling");
+            h.cancel();
+
+            Ok(())
+        };
+
         // build process task
         let dir = self.config.dir.clone();
         let handler = self.config.handler.detach.clone();
@@ -115,6 +129,7 @@ impl Adapter for ProcessAdapter {
             tokio::select! {
                 r = proc      => r,
                 r = heartbeat => r,
+                r = timeout   => r,
             }
         };
 
@@ -128,10 +143,19 @@ impl Adapter for ProcessAdapter {
     }
 
     fn detachment_cancel_start(&mut self, handle: DtcHandle, _reason: CancelReason) -> Result<()> {
-        // build task
+        // build timeout task
+        let h = handle.clone();
+        let timeout = async move {
+            tokio::time::sleep(std::time::Duration::new(TASK_TIMEOUT_SECS, 0)).await;
+
+            trace!(target: "sdtxd::proc", "detachment-abort timed out, canceling");
+            Ok(())
+        };
+
+        // build process task
         let dir = self.config.dir.clone();
         let handler = self.config.handler.detach_abort.clone();
-        let task = async move {
+        let proc = async move {
             trace!(target: "sdtxd::proc", "detachment-abort process started");
 
             // run handler if specified
@@ -152,9 +176,18 @@ impl Adapter for ProcessAdapter {
             };
 
             trace!(target: "sdtxd::proc", "detachment-abort process completed");
-            handle.complete();
-
             Ok(())
+        };
+
+        // build task
+        let task = async move {
+            let result = tokio::select! {
+                r = proc      => r,
+                r = timeout   => r,
+            };
+
+            h.complete();
+            result
         };
 
         // submit task
@@ -167,16 +200,19 @@ impl Adapter for ProcessAdapter {
     }
 
     fn attachment_start(&mut self, handle: AtHandle) -> Result<()> {
-        // build task
+        // build timeout task
+        let timeout = async move {
+            tokio::time::sleep(std::time::Duration::new(TASK_TIMEOUT_SECS, 0)).await;
+
+            trace!(target: "sdtxd::proc", "detachment-abort timed out, canceling");
+            Ok(())
+        };
+
+        // build process task
         let dir = self.config.dir.clone();
         let handler = self.config.handler.attach.clone();
-        let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
-        let task = async move {
+        let proc = async move {
             trace!(target: "sdtxd::proc", "attachment process started");
-
-            // delay to ensure all devices are set up
-            debug!(target: "sdtxd::proc", "delaying attachment process by {}ms", delay.as_millis());
-            tokio::time::sleep(delay).await;
 
             // run handler if specified
             if let Some(ref path) = handler {
@@ -196,9 +232,24 @@ impl Adapter for ProcessAdapter {
             };
 
             trace!(target: "sdtxd::proc", "attachment process completed");
-            handle.complete();
-
             Ok(())
+        };
+
+        // build task
+        let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
+        let task = async move {
+            // delay to ensure all devices are set up
+            debug!(target: "sdtxd::proc", "delaying attachment process by {}ms", delay.as_millis());
+            tokio::time::sleep(delay).await;
+
+            // drive main tasks
+            let result = tokio::select! {
+                r = proc      => r,
+                r = timeout   => r,
+            };
+
+            handle.complete();
+            result
         };
 
         // submit task
