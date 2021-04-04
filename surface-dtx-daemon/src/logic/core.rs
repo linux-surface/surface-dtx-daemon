@@ -253,7 +253,7 @@ impl<A: Adapter> Core<A> {
                 debug!(target: "sdtxd::core", "request: sleeping 2s to prevent synchronization issues");
                 tokio::time::sleep(std::time::Duration::new(2, 0)).await;
 
-                let status = self.device.get_latch_status()?;
+                let status = self.device.get_latch_status().context("DTX device error")?;
                 if status != LatchStatus::Closed {
                     debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
                     return Ok(());
