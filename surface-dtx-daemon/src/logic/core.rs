@@ -184,7 +184,7 @@ impl<A: Adapter> Core<A> {
             };
 
             if let Some(event) = event {
-                self.handle(event)?;
+                self.handle(event).await?;
             } else {
                 break;
             }
@@ -193,12 +193,12 @@ impl<A: Adapter> Core<A> {
         Ok(())
     }
 
-    fn handle(&mut self, event: Event) -> Result<()> {
+    async fn handle(&mut self, event: Event) -> Result<()> {
         trace!(target: "sdtxd::core", ?event, "received event");
 
         match event {
             Event::Request => {
-                self.on_request()
+                self.on_request().await
             },
             Event::DetachConfirm => {
                 self.on_detach_confirm()
@@ -231,25 +231,44 @@ impl<A: Adapter> Core<A> {
         }
     }
 
-    fn on_request(&mut self) -> Result<()> {
+    async fn on_request(&mut self) -> Result<()> {
         // handle cancellation signals
         if *self.state.ec != EcState::Ready {
-            // reset EC state and abort if the latch is closed; if latch is
-            // open or has been requested to be opened, this will be done on
-            // the "closed" event
-            if *self.state.latch == LatchState::Opened || *self.state.ec == EcState::Confirmed {
+            if *self.state.latch == LatchState::Opened {
+                // if latch is open, defer cancellation until latch is closed
+                // again
                 debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
-            } else {
-                debug!(target: "sdtxd::core", "request: canceling current request");
+                return Ok(());
 
-                self.state.ec.set(EcState::Ready);
+            } else if *self.state.ec == EcState::Confirmed {
+                // If we have requested the EC to open the latch, we have two
+                // possibilities: Either, the latch will open momentarily, or
+                // we already had a cancel request event queued before we sent
+                // the confirm signal, and the latch will never open. To
+                // determine which case we are in, wait 2 seconds and check if
+                // the latch is closed. Note that this shouldn't cause any
+                // issues with lost-update problems as we are essentially
+                // blocking the event handler.
 
-                if *self.state.rt == RuntimeState::Detaching {
-                    self.state.rt.set(RuntimeState::Canceling);
+                debug!(target: "sdtxd::core", "request: sleeping 2s to prevent synchronization issues");
+                tokio::time::sleep(std::time::Duration::new(2, 0)).await;
 
-                    let handle = DtcHandle { inject: self.inject_tx.clone() };
-                    self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
+                let status = self.device.get_latch_status()?;
+                if status != LatchStatus::Closed {
+                    debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
+                    return Ok(());
                 }
+            }
+
+            debug!(target: "sdtxd::core", "request: canceling current request");
+
+            self.state.ec.set(EcState::Ready);
+
+            if *self.state.rt == RuntimeState::Detaching {
+                self.state.rt.set(RuntimeState::Canceling);
+
+                let handle = DtcHandle { inject: self.inject_tx.clone() };
+                self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
             }
 
             return Ok(());
