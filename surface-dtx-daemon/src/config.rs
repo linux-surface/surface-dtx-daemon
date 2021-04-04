@@ -19,9 +19,6 @@ pub struct Config {
 
     #[serde(default)]
     pub handler: Handler,
-
-    #[serde(default)]
-    pub delay: Delay,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -43,19 +40,43 @@ pub enum LogLevel {
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Handler {
     #[serde(default)]
-    pub detach: Option<PathBuf>,
+    pub detach: DetachHandler,
 
     #[serde(default)]
-    pub detach_abort: Option<PathBuf>,
+    pub detach_abort: DetachAbortHandler,
 
     #[serde(default)]
-    pub attach: Option<PathBuf>,
+    pub attach: AttachHandler,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Delay {
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct DetachHandler {
+    #[serde(default)]
+    pub exec: Option<PathBuf>,
+
+    #[serde(default="defaults::task_timeout")]
+    pub timeout: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct DetachAbortHandler {
+    #[serde(default)]
+    pub exec: Option<PathBuf>,
+
+    #[serde(default="defaults::task_timeout")]
+    pub timeout: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct AttachHandler {
+    #[serde(default)]
+    pub exec: Option<PathBuf>,
+
+    #[serde(default="defaults::task_timeout")]
+    pub timeout: f32,
+
     #[serde(default="defaults::delay_attach")]
-    pub attach: f32,
+    pub delay: f32,
 }
 
 
@@ -131,17 +152,13 @@ impl Default for LogLevel {
     }
 }
 
-impl Default for Delay {
-    fn default() -> Delay {
-        Delay {
-            attach: defaults::delay_attach(),
-        }
-    }
-}
-
 mod defaults {
     pub fn delay_attach() -> f32 {
         5.0
+    }
+
+    pub fn task_timeout() -> f32 {
+        60.0
     }
 }
 

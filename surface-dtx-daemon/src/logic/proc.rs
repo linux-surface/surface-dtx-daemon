@@ -17,9 +17,6 @@ use tokio::process::Command;
 use tracing::{Level, debug, trace};
 
 
-const TASK_TIMEOUT_SECS: u64 = 30;
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExitStatus {
     Commence = 0,
@@ -66,15 +63,16 @@ impl Adapter for ProcessAdapter {
         let h = handle.clone();
         let heartbeat = async move {
             loop {
-                tokio::time::sleep(std::time::Duration::new(2, 0)).await;
+                tokio::time::sleep(Duration::new(2, 0)).await;
                 h.heartbeat()?;
             }
         };
 
         // build timeout task
         let h = handle.clone();
+        let timeout = self.config.handler.detach.timeout * 1000.0;
         let timeout = async move {
-            tokio::time::sleep(std::time::Duration::new(TASK_TIMEOUT_SECS, 0)).await;
+            tokio::time::sleep(Duration::from_millis(timeout as _)).await;
 
             trace!(target: "sdtxd::proc", "detachment process timed out, canceling");
             h.cancel();
@@ -84,7 +82,7 @@ impl Adapter for ProcessAdapter {
 
         // build process task
         let dir = self.config.dir.clone();
-        let handler = self.config.handler.detach.clone();
+        let handler = self.config.handler.detach.exec.clone();
         let proc = async move {
             trace!(target: "sdtxd::proc", "detachment process started");
 
@@ -97,6 +95,7 @@ impl Adapter for ProcessAdapter {
                     .current_dir(dir)
                     .env("EXIT_DETACH_COMMENCE", ExitStatus::Commence.to_str())
                     .env("EXIT_DETACH_ABORT", ExitStatus::Abort.to_str())
+                    .kill_on_drop(true)
                     .output().await
                     .context("Subprocess error (detachment)")?;
 
@@ -145,8 +144,9 @@ impl Adapter for ProcessAdapter {
     fn detachment_cancel_start(&mut self, handle: DtcHandle, _reason: CancelReason) -> Result<()> {
         // build timeout task
         let h = handle.clone();
+        let timeout = self.config.handler.detach_abort.timeout * 1000.0;
         let timeout = async move {
-            tokio::time::sleep(std::time::Duration::new(TASK_TIMEOUT_SECS, 0)).await;
+            tokio::time::sleep(Duration::from_millis(timeout as _)).await;
 
             trace!(target: "sdtxd::proc", "detachment-abort timed out, canceling");
             Ok(())
@@ -154,7 +154,7 @@ impl Adapter for ProcessAdapter {
 
         // build process task
         let dir = self.config.dir.clone();
-        let handler = self.config.handler.detach_abort.clone();
+        let handler = self.config.handler.detach_abort.exec.clone();
         let proc = async move {
             trace!(target: "sdtxd::proc", "detachment-abort process started");
 
@@ -165,6 +165,7 @@ impl Adapter for ProcessAdapter {
                 // run handler
                 let output = Command::new(path)
                     .current_dir(dir)
+                    .kill_on_drop(true)
                     .output().await
                     .context("Subprocess error (detachment-abort)")?;
 
@@ -201,8 +202,9 @@ impl Adapter for ProcessAdapter {
 
     fn attachment_start(&mut self, handle: AtHandle) -> Result<()> {
         // build timeout task
+        let timeout = self.config.handler.attach.timeout * 1000.0;
         let timeout = async move {
-            tokio::time::sleep(std::time::Duration::new(TASK_TIMEOUT_SECS, 0)).await;
+            tokio::time::sleep(Duration::from_millis(timeout as _)).await;
 
             trace!(target: "sdtxd::proc", "detachment-abort timed out, canceling");
             Ok(())
@@ -210,7 +212,7 @@ impl Adapter for ProcessAdapter {
 
         // build process task
         let dir = self.config.dir.clone();
-        let handler = self.config.handler.attach.clone();
+        let handler = self.config.handler.attach.exec.clone();
         let proc = async move {
             trace!(target: "sdtxd::proc", "attachment process started");
 
@@ -221,6 +223,7 @@ impl Adapter for ProcessAdapter {
                 // run handler
                 let output = Command::new(path)
                     .current_dir(dir)
+                    .kill_on_drop(true)
                     .output().await
                     .context("Subprocess error (attachment)")?;
 
@@ -236,7 +239,7 @@ impl Adapter for ProcessAdapter {
         };
 
         // build task
-        let delay = Duration::from_millis((self.config.delay.attach * 1000.0) as _);
+        let delay = Duration::from_millis((self.config.handler.attach.delay * 1000.0) as _);
         let task = async move {
             // delay to ensure all devices are set up
             debug!(target: "sdtxd::proc", "delaying attachment process by {}ms", delay.as_millis());
