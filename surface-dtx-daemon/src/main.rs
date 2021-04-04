@@ -1,3 +1,7 @@
+#[macro_use]
+mod utils;
+use utils::JoinHandleExt;
+
 mod cli;
 
 mod config;
@@ -9,9 +13,6 @@ mod service;
 use service::Service;
 
 mod tq;
-
-mod utils;
-use utils::JoinHandleExt;
 
 
 use std::sync::{Arc, Mutex};
@@ -122,7 +123,7 @@ async fn run() -> Result<()> {
     trace!(target: "sdtxd", "setting up DTX event handling");
 
     let device = Arc::new(event_device);
-    let adapter = logic::DebugAdapter::new(config, device.clone(), queue_tx);
+    let adapter = logic::ProcessAdapter::new(config, device.clone(), queue_tx);
     let mut core = logic::Core::new(device, adapter);
     let mut event_task = tokio::spawn(async move { core.run().await }).guard();
 

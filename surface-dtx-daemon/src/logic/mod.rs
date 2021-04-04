@@ -1,8 +1,8 @@
 mod core;
 pub use self::core::{Adapter, Core};
 
-mod debug;
-pub use self::debug::DebugAdapter;
+mod proc;
+pub use self::proc::ProcessAdapter;
 
 use sdtx::event;
 pub use sdtx::{BaseInfo, BaseState, DeviceMode, DeviceType, HardwareError};
