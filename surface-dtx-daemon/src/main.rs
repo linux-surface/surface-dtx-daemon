@@ -27,7 +27,7 @@ use futures::prelude::*;
 
 use tokio::signal::unix::{signal, SignalKind};
 
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 
 fn bootstrap() -> Result<Config> {
@@ -65,6 +65,8 @@ async fn run() -> Result<()> {
     let config = bootstrap()?;
 
     // set up signal handling
+    trace!(target: "sdtxd", "setting up signal handling");
+
     let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
     let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
 
@@ -74,6 +76,8 @@ async fn run() -> Result<()> {
     }};
 
     // prepare devices
+    trace!(target: "sdtxd", "preparing devices");
+
     let event_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
 
@@ -81,6 +85,8 @@ async fn run() -> Result<()> {
         .context("Failed to access DTX device")?;
 
     // set up D-Bus connection
+    trace!(target: "sdtxd", "connecting to D-Bus");
+
     let (dbus_rsrc, dbus_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus")?;
 
@@ -88,6 +94,8 @@ async fn run() -> Result<()> {
     let mut dbus_task = tokio::spawn(dbus_rsrc).guard();
 
     // set up D-Bus service
+    trace!(target: "sdtxd", "setting up D-Bus service");
+
     let dbus_cr = Arc::new(Mutex::new(Crossroads::new()));
 
     let serv = Service::new(dbus_conn.clone(), control_device);
@@ -105,10 +113,14 @@ async fn run() -> Result<()> {
     let serv_guard = utils::guard(|| { serv.unregister(&mut dbus_cr.lock().unwrap()); });
 
     // set up task-queue
+    trace!(target: "sdtxd", "setting up task queue");
+
     let (mut queue, queue_tx) = tq::new();
     let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
 
     // set up event handler
+    trace!(target: "sdtxd", "setting up DTX event handling");
+
     let device = Arc::new(event_device);
     let adapter = logic::DebugAdapter::new(config, device.clone(), queue_tx);
     let mut core = logic::Core::new(device, adapter);
@@ -122,11 +134,13 @@ async fn run() -> Result<()> {
     }};
 
     // run until whatever comes first: error, panic, or shutdown signal
+    info!(target: "sdtxd", "running...");
+
     tokio::select! {
         signame = sig => {
             // first shutdown signal: try to do a clean shutdown and complete
             // the task queue
-            info!("received {}, shutting down...", signame);
+            info!(target: "sdtxd", "received {}, shutting down...", signame);
 
             // stop event task: don't handle any new DTX events and drop task
             // queue transmitter to eventually cause the task queue task to
@@ -149,7 +163,7 @@ async fn run() -> Result<()> {
             // second signal received
             tokio::select! {
                 (signame, tval) = sig => {
-                    warn!("received {} during shutdown, terminating...", signame);
+                    warn!(target: "sdtxd", "received {} during shutdown, terminating...", signame);
                     std::process::exit(128 + tval)
                 },
                 result = queue_task => match result {
@@ -172,7 +186,7 @@ async fn main() -> Result<()> {
     // run main function and log critical errors
     let result = run().await;
     if let Err(ref err) = result {
-        error!("critical error: {}\n", err);
+        error!(target: "sdtxd", "critical error: {}\n", err);
     }
 
     // for some reason tokio won't properly shut down, even though every task

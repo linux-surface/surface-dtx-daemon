@@ -117,9 +117,9 @@ impl Diagnostics {
         let span = tracing::info_span!("config", file=?self.path);
         let _guard = span.enter();
 
-        debug!("configuration loaded");
+        debug!(target: "sdtxd::config", "configuration loaded");
         for item in &self.unknowns {
-            warn!(item = %item, "unknown config item")
+            warn!(target: "sdtxd::config", item = %item, "unknown config item")
         }
     }
 }

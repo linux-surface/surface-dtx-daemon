@@ -4,6 +4,8 @@ use std::pin::Pin;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::mpsc::error::SendError;
 
+use tracing::trace;
+
 
 pub type Task<E> = Pin<Box<dyn Future<Output=Result<(), E>> + Send>>;
 
@@ -16,7 +18,10 @@ pub struct TaskQueue<E> {
 impl<E> TaskQueue<E> {
     pub async fn run(&mut self) -> Result<(), E> {
         while let Some(task) = self.rx.recv().await {
-            task.await?;
+            trace!(target: "sdtxd::tq", "running next task");
+            let result = task.await;
+            trace!(target: "sdtxd::tq", "task completed");
+            result?;
         }
 
         Ok(())
@@ -34,6 +39,7 @@ impl<E> TaskSender<E> {
     where
         T: Future<Output=Result<(), E>> + Send + 'static
     {
+        trace!(target: "sdtxd::tq", "submitting new task");
         self.tx.send(Box::pin(task))
     }
 }

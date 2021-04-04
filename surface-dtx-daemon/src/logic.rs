@@ -32,6 +32,17 @@ impl From<sdtx::RuntimeError> for RuntimeError {
     }
 }
 
+impl std::fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotAttached => write!(f, "no base attached"),
+            Self::NotFeasible => write!(f, "not feasible"),
+            Self::Timeout     => write!(f, "timeout"),
+            Self::Unknown(x)  => write!(f, "unknown: {:#04x}", x),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CancelReason {
@@ -47,6 +58,17 @@ impl From<event::CancelReason> for CancelReason {
             event::CancelReason::Runtime(e)  => Self::Runtime(RuntimeError::from(e)),
             event::CancelReason::Hardware(e) => Self::Hardware(e),
             event::CancelReason::Unknown(x)  => Self::Unknown(x),
+        }
+    }
+}
+
+impl std::fmt::Display for CancelReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UserRequest   => write!(f, "user request"),
+            Self::Runtime(err)  => write!(f, "runtime error: {}", err),
+            Self::Hardware(err) => write!(f, "hardware error: {}", err),
+            Self::Unknown(x)    => write!(f, "unknown: {:#04x}", x),
         }
     }
 }
@@ -95,12 +117,16 @@ impl<A: Adapter> Core<A> {
         let mut evdev = Device::from(self.device.file().try_clone().await?);
 
         // enable events
+        trace!(target: "sdtxd::core", "enabling events");
+
         let mut events = evdev.events_async()
             .context("DTX device error")?;
 
         // Update our state before we start handling events but after we've
         // enabled them. This way, we can ensure that we don't miss any
         // events/changes and accidentally set a stale state.
+        trace!(target: "sdtxd::core", "updating state");
+
         let base = self.device.get_base_info().context("DTX device error")?;
         let latch = self.device.get_latch_status().context("DTX device error")?;
         let mode = self.device.get_device_mode().context("DTX device error")?;
@@ -123,17 +149,18 @@ impl<A: Adapter> Core<A> {
         self.adapter.set_state(mode, base, latch);
 
         // handle events
+        trace!(target: "sdtxd::core", "running event loop");
         while let Some(evt) = events.next().await {
-            self.handle(evt.context("DTX device error")?).await?;
+            self.handle(evt.context("DTX device error")?)?;
         }
 
         Ok(())
     }
 
-    async fn handle(&mut self, evt: Event) -> Result<()> {
-        trace!(event=?evt, "received event");
+    fn handle(&mut self, event: Event) -> Result<()> {
+        trace!(target: "sdtxd::core", ?event, "received event");
 
-        match evt {
+        match event {
             Event::Request => {
                 self.on_request()
             },
@@ -150,7 +177,7 @@ impl<A: Adapter> Core<A> {
                 self.on_device_mode(mode)
             },
             Event::Unknown { code, data } => {
-                warn!(code, ?data, "unhandled event");
+                warn!(target: "sdtxd::core", code, ?data, "unhandled event");
                 Ok(())
             },
         }
@@ -159,11 +186,16 @@ impl<A: Adapter> Core<A> {
     fn on_request(&mut self) -> Result<()> {
         // handle cancellation signals
         if self.state.ec == EcState::InProgress {
+            // reset EC state and abort if the latch is closed; if latch is
+            // open, this will be done on the "closed" event
             return match self.state.latch {
-                LatchState::Opened => Ok(()),
+                LatchState::Opened => {
+                    debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
+                    Ok(())
+                },
                 LatchState::Closed => {
-                    // reset EC state and abort if the latch is closed; if
-                    // latch is open, this will be done on the "closed" event
+                    debug!(target: "sdtxd::core", "request: canceling current request");
+
                     self.state.ec = EcState::Ready;
                     self.adapter.detachment_cancel(CancelReason::UserRequest)
                 },
@@ -178,9 +210,15 @@ impl<A: Adapter> Core<A> {
             self.device.latch_cancel().context("DTX device error")?;
 
             let reason = match self.state.base {
-                BaseState::NotFeasible => CancelReason::Runtime(RuntimeError::NotFeasible),
-                BaseState::Detached    => CancelReason::Runtime(RuntimeError::NotAttached),
-                BaseState::Attached    => unreachable!("possibility already checked"),
+                BaseState::NotFeasible => {
+                    debug!(target: "sdtxd::core", "request: detachment not feasible, low battery");
+                    CancelReason::Runtime(RuntimeError::NotFeasible)
+                },
+                BaseState::Detached => {
+                    debug!(target: "sdtxd::core", "request: detachment not feasible, no base attached");
+                    CancelReason::Runtime(RuntimeError::NotAttached)
+                },
+                BaseState::Attached => unreachable!("possibility already checked"),
             };
 
             // notify adapter
@@ -188,6 +226,8 @@ impl<A: Adapter> Core<A> {
         }
 
         // commence detachment
+        debug!(target: "sdtxd::core", "detachment requested");
+
         self.adapter.detachment_start()
     }
 
@@ -196,10 +236,14 @@ impl<A: Adapter> Core<A> {
 
         match self.state.ec {
             EcState::Ready => {         // no detachment in progress
+                debug!(target: "sdtxd::core", %reason, "cancel: detachment prevented");
+
                 // forward to adapter
                 self.adapter.request_canceled(reason)
             },
             EcState::InProgress => {    // detachment in progress
+                debug!(target: "sdtxd::core", %reason, "cancel: detachment canceled");
+
                 // reset EC state
                 self.state.ec = EcState::Ready;
 
@@ -216,7 +260,7 @@ impl<A: Adapter> Core<A> {
             event::BaseState::Detached    => BaseState::Detached,
             event::BaseState::NotFeasible => BaseState::NotFeasible,
             event::BaseState::Unknown(state) => {
-                error!(state, "unknown base state");
+                error!(target: "sdtxd::core", state, "base: unknown base state");
                 return Ok(());
             },
         };
@@ -226,6 +270,8 @@ impl<A: Adapter> Core<A> {
             return Ok(());
         }
         let old = std::mem::replace(&mut self.state.base, state);
+
+        debug!(target: "sdtxd::core", ?state, ?ty, id, "base: state changed");
 
         // fowrard to adapter
         self.adapter.on_base_state(state, ty, id)?;
@@ -237,26 +283,35 @@ impl<A: Adapter> Core<A> {
                     // If the latch is closed, we don't expect any disconnect.
                     // This is either the user forcefully removing the
                     // clipboard, or incorrect reporting from the EC.
-                    error!("unexpected disconnect: latch is closed");
+                    error!(target: "sdtxd::core", "unexpected disconnect: latch is closed");
+
+                    self.adapter.detachment_unexpected()
 
                 } else if self.state.ec != EcState::InProgress {
                     // If the latch is open, we expect the EC state to be
                     // in-progress. This is either a logic error or incorrect
                     // reporting from the EC.
-                    error!("unexpected disconnect: detachment not in-progress but latch is open");
-                }
+                    error!(target: "sdtxd::core", "unexpected disconnect: detachment not \
+                           in-progress but latch is open");
 
-                self.adapter.detachment_unexpected()
+                    self.adapter.detachment_unexpected()
+                } else {
+                    Ok(())
+                }
             },
             (BaseState::Detached, _) => {       // connected
                 // if latch is closed, start attachment process, otherwise wait
                 // for latch to close before starting that
                 match self.state.latch {
                     LatchState::Closed => {
+                        debug!(target: "sdtxd::core", "base attached, starting attachment process");
+
                         self.state.needs_attachment = false;
                         self.adapter.attachment_complete()
                     },
                     LatchState::Opened => {
+                        debug!(target: "sdtxd::core", "base attached, deferring attachment");
+
                         self.state.needs_attachment = true;
                         Ok(())
                     },
@@ -274,7 +329,7 @@ impl<A: Adapter> Core<A> {
             event::LatchStatus::Error(error) => {
                 use HardwareError as HwErr;
 
-                error!(%error, "latch status error");
+                error!(target: "sdtxd::core", %error, "latch: status error");
 
                 // try to read latch status via ioctl, maybe we get an updated non-error state;
                 // otherwise try to infer actual state
@@ -288,15 +343,15 @@ impl<A: Adapter> Core<A> {
                     LatchStatus::Error(HwErr::Unknown(_))         => return Ok(()),
                 };
 
-                debug!(?status, "latch status updated");
+                debug!(target: "sdtxd::core", ?status, "latch: status inferred after error");
 
                 // forward error to adapter
                 self.adapter.on_latch_status(LatchStatus::Error(error))?;
 
                 status
             },
-            event::LatchStatus::Unknown(x) => {
-                error!(status=x, "unknown latch status");
+            event::LatchStatus::Unknown(status) => {
+                error!(target: "sdtxd::core", status, "latch: unknown latch status");
                 return Ok(());
             },
         };
@@ -312,6 +367,8 @@ impl<A: Adapter> Core<A> {
             return Ok(());
         }
         self.state.latch = state;
+
+        debug!(target: "sdtxd::core", ?status, "latch: status changed");
 
         // Fowrard to adapter: Note that we use the inferred state here in case
         // of any error. In case of errors, the adapter will get two events,
@@ -332,6 +389,8 @@ impl<A: Adapter> Core<A> {
         if self.state.base == BaseState::Detached {
             // The latch has been closed and the base is detached. This is what
             // we normally expect the detachment procedure to end with.
+            debug!(target: "sdtxd::core", "detachment completed via latch close");
+
             self.adapter.detachment_complete()
 
         } else if !self.state.needs_attachment {
@@ -343,8 +402,11 @@ impl<A: Adapter> Core<A> {
             // detachment procedure via a cancel event. Only tell the adapter
             // if we haven't done so yet.
             if ec == EcState::InProgress {
+                debug!(target: "sdtxd::core", "detachment canceled via latch close");
+
                 self.adapter.detachment_cancel(CancelReason::UserRequest)
             } else {
+                debug!(target: "sdtxd::core", "detachment already canceled before latch closed");
                 Ok(())
             }
 
@@ -353,7 +415,10 @@ impl<A: Adapter> Core<A> {
             // (signalled by this event), the tablet has been detached and
             // re-attached. Complete the detachment procedure and notify the
             // adapter that an attachmend has occured.
+            debug!(target: "sdtxd::core", "detachment completed via latch close");
             self.adapter.detachment_complete()?;
+
+            debug!(target: "sdtxd::core", "running deferred attachment process now");
             self.state.needs_attachment = false;
             self.adapter.attachment_complete()
         }
@@ -361,11 +426,13 @@ impl<A: Adapter> Core<A> {
 
     fn on_device_mode(&mut self, mode: event::DeviceMode) -> Result<()> {
         if let event::DeviceMode::Unknown(mode) = mode {
-            error!(mode, "unknown device mode");
+            error!(target: "sdtxd::core", mode, "mode: unknown device mode");
             return Ok(());
         }
-
         let mode = DeviceMode::try_from(mode).unwrap();
+
+        debug!(target: "sdtxd::core", ?mode, "mode: device mode changed");
+
         self.adapter.on_device_mode(mode)
     }
 }
@@ -524,7 +591,7 @@ impl Adapter for DebugAdapter {
 
             // if any subprocess is running (attach/abort), cancel the (new) request
             if *state != RuntimeState::Ready {
-                trace!("request: process in progress, canceling this request");
+                debug!(target: "sdtxd::proc", "request: already processing, canceling this request");
 
                 self.device.latch_cancel().context("DTX device error")?;
                 return Ok(());
@@ -538,9 +605,9 @@ impl Adapter for DebugAdapter {
         let task = async move {
             // TODO: properly implement detachment process
 
-            info!("detachment process: starting");
+            info!(target: "sdtxd::proc", "detachment process: starting");
             tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-            info!("detachment process: done");
+            info!(target: "sdtxd::proc", "detachment process: done");
 
             // state will be changed by either detachment_complete or detachment_cancel
 
@@ -551,7 +618,7 @@ impl Adapter for DebugAdapter {
             }
         };
 
-        trace!("request: scheduling detachment task");
+        trace!(target: "sdtxd::proc", "scheduling detachment task");
         if self.queue.submit(task).is_err() {
             unreachable!("receiver dropped");
         }
@@ -578,16 +645,16 @@ impl Adapter for DebugAdapter {
         let task = async move {
             // TODO: properly implement detachment-abort process
 
-            info!("abort process: starting");
+            info!(target: "sdtxd::proc", "abort process: starting");
             tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-            info!("abort process: done");
+            info!(target: "sdtxd::proc", "abort process: done");
 
             *state.lock().unwrap() = RuntimeState::Ready;
 
             Ok(())
         };
 
-        trace!("request: scheduling detachment-abort task");
+        trace!(target: "sdtxd::proc", "scheduling detachment-abort task");
         if self.queue.submit(task).is_err() {
             unreachable!("receiver dropped");
         }
@@ -607,16 +674,16 @@ impl Adapter for DebugAdapter {
         let task = async move {
             // TODO: properly implement attachment process
 
-            info!("attachment process: starting");
+            info!(target: "sdtxd::proc", "attachment process: starting");
             tokio::time::sleep(std::time::Duration::new(5, 0)).await;
-            info!("attachment process: done");
+            info!(target: "sdtxd::proc", "attachment process: done");
 
             *state.lock().unwrap() = RuntimeState::Ready;
 
             Ok(())
         };
 
-        trace!("request: scheduling attachment task");
+        trace!(target: "sdtxd::proc", "scheduling attachment task");
         if self.queue.submit(task).is_err() {
             unreachable!("receiver dropped");
         }
