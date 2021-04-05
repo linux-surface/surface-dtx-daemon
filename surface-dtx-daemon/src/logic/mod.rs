@@ -77,3 +77,12 @@ pub enum LatchState {
     Closed,
     Opened,
 }
+
+impl Into<LatchStatus> for LatchState {
+    fn into(self) -> LatchStatus {
+        match self {
+            Self::Closed => LatchStatus::Closed,
+            Self::Opened => LatchStatus::Opened,
+        }
+    }
+}
