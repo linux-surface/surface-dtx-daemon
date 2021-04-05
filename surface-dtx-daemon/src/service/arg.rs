@@ -1,10 +1,12 @@
 use crate::logic::{
     BaseInfo,
     BaseState,
+    CancelReason,
     DeviceMode,
     DeviceType,
     HardwareError,
     LatchStatus,
+    RuntimeError,
 };
 
 use dbus::arg::Variant;
@@ -40,10 +42,10 @@ impl DbusArg for LatchStatus {
             LatchStatus::Closed => "closed".into(),
             LatchStatus::Opened => "opened".into(),
             LatchStatus::Error(error) => match error {
-                HardwareError::FailedToOpen       => "error:failed-to-open".into(),
-                HardwareError::FailedToRemainOpen => "error:failed-to-remain-open".into(),
-                HardwareError::FailedToClose      => "error:failed-to-close".into(),
-                HardwareError::Unknown(x) => format!("error:unknown:{}", x),
+                HardwareError::FailedToOpen       => "error:hardware:failed-to-open".into(),
+                HardwareError::FailedToRemainOpen => "error:hardware:failed-to-remain-open".into(),
+                HardwareError::FailedToClose      => "error:hardware:failed-to-close".into(),
+                HardwareError::Unknown(x) => format!("error:hardware:unknown:{}", x),
             },
         }
     }
@@ -77,6 +79,29 @@ impl DbusArg for DeviceType {
             DeviceType::Hid => "hid".into(),
             DeviceType::Ssh => "ssh".into(),
             DeviceType::Unknown(x) => format!("unknown:{}", x),
+        }
+    }
+}
+
+impl DbusArg for CancelReason {
+    type Arg = String;
+
+    fn as_arg(&self) -> Self::Arg {
+        match self {
+            CancelReason::UserRequest => "request".into(),
+            CancelReason::Runtime(rt) => match rt {
+                RuntimeError::NotAttached => "error:runtime:not-attached".into(),
+                RuntimeError::NotFeasible => "error:runtime:not-feasible".into(),
+                RuntimeError::Timeout     => "error:runtime:timeout".into(),
+                RuntimeError::Unknown(x) => format!("error:runtime:unknown:{}", x),
+            },
+            CancelReason::Hardware(hw) => match hw {
+                HardwareError::FailedToOpen       => "error:hardware:failedt-to-open".into(),
+                HardwareError::FailedToRemainOpen => "error:hardware:failed-to-remain-open".into(),
+                HardwareError::FailedToClose      => "error:hardware:failed-to-close".into(),
+                HardwareError::Unknown(x) => format!("error:hardware:unknown:{}", x),
+            },
+            CancelReason::Unknown(x) => format!("unknown:{}", x),
         }
     }
 }

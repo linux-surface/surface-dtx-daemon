@@ -1,11 +1,14 @@
 use crate::logic::{
     Adapter,
     BaseInfo,
+    CancelReason,
     DeviceMode,
+    DtHandle,
+    DtcHandle,
     LatchState,
     LatchStatus,
 };
-use crate::service::ServiceHandle;
+use crate::service::{ServiceHandle, Event};
 
 use anyhow::Result;
 
@@ -39,6 +42,36 @@ impl Adapter for ServiceAdapter {
 
     fn on_device_mode(&mut self, mode: DeviceMode) -> Result<()> {
         self.service.set_device_mode(mode);
+        Ok(())
+    }
+
+    fn detachment_start(&mut self, _handle: DtHandle) -> Result<()> {
+        self.service.emit_event(Event::DetachmentStart);
+        Ok(())
+    }
+
+    fn detachment_complete(&mut self) -> Result<()> {
+        self.service.emit_event(Event::DetachmentComplete);
+        Ok(())
+    }
+
+    fn detachment_timeout(&mut self) -> Result<()> {
+        self.service.emit_event(Event::DetachmentTimeout);
+        Ok(())
+    }
+
+    fn detachment_cancel_start(&mut self, _handle: DtcHandle, reason: CancelReason) -> Result<()> {
+        self.service.emit_event(Event::DetachmentCancelStart { reason });
+        Ok(())
+    }
+
+    fn detachment_cancel_complete(&mut self) -> Result<()> {
+        self.service.emit_event(Event::DetachmentCancelComplete);
+        Ok(())
+    }
+
+    fn detachment_cancel_timeout(&mut self) -> Result<()> {
+        self.service.emit_event(Event::DetachmentCancelTimeout);
         Ok(())
     }
 }

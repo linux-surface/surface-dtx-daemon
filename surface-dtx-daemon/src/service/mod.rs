@@ -1,6 +1,9 @@
 mod arg;
 use arg::DbusArg;
 
+mod event;
+pub use event::Event;
+
 mod prop;
 use prop::Property;
 
@@ -13,10 +16,12 @@ use crate::logic::{
     LatchStatus,
 };
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
+use dbus::{Message, arg::{RefArg, Variant}};
 use dbus::nonblock::SyncConnection;
 use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 
@@ -66,6 +71,10 @@ impl Service {
                     Err(e) => { Err(MethodErr::failed(&e)) },
                 }
             });
+
+            // event signal
+            b.signal::<(String, HashMap<String, Variant<Box<dyn RefArg>>>), _>
+                ("Event", ("type", "values"));
         });
 
         cr.insert(Self::PATH, &[iface_token], self.inner.clone());
@@ -99,6 +108,20 @@ impl ServiceHandle {
 
     pub fn set_base_info(&self, value: BaseInfo) {
         self.inner.base_info.set(self.conn.as_ref(), value);
+    }
+
+    pub fn emit_event(&self, event: Event) {
+        use dbus::channel::Sender;
+
+        let path = Service::PATH.into();
+        let interface = Service::INTERFACE.into();
+
+        // build signal message
+        let mut signal = Message::signal(&path, &interface, &"Event".into());
+        signal.append_all(event);
+
+        // only fails when memory runs out
+        self.conn.send(signal).unwrap();
     }
 }
 
