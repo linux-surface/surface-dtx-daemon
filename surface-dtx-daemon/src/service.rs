@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
-use dbus::{arg::Variant, channel::Sender};
+use dbus::arg::Variant;
 use dbus::nonblock::SyncConnection;
 use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 
@@ -17,7 +17,7 @@ use tracing::debug;
 pub struct Service {
     conn: Arc<SyncConnection>,
     device: Device,
-    mode: Mutex<DeviceMode>,
+    mode: Property<DeviceMode>,
 }
 
 impl Service {
@@ -28,7 +28,7 @@ impl Service {
         let service = Service {
             conn,
             device,
-            mode: Mutex::new(DeviceMode::Laptop),
+            mode: Property::new("DeviceMode", DeviceMode::Laptop),
         };
 
         Arc::new(service)
@@ -64,36 +64,8 @@ impl Service {
         let _ : Option<Arc<Service>> = cr.remove(&Self::NAME.into());
     }
 
-    #[allow(unused)]
     pub fn set_device_mode(&self, new: DeviceMode) {
-        let old = {
-            let mut mode = self.mode.lock().unwrap();
-            std::mem::replace(&mut *mode, new)
-        };
-
-        debug!(%old, %new, "changing device mode");
-
-        // signal property changed
-        if old != new {
-            use dbus::arg::RefArg;
-            use dbus::message::SignalArgs;
-            use dbus::ffidisp::stdintf::org_freedesktop_dbus as dbffi;
-            use dbffi::PropertiesPropertiesChanged as PropertiesChanged;
-
-            let mut changed: HashMap<String, Variant<Box<dyn RefArg>>> = HashMap::new();
-            changed.insert("DeviceMode".into(), new.as_variant());
-
-            let changed = PropertiesChanged {
-                interface_name: Self::INTERFACE.into(),
-                changed_properties: changed,
-                invalidated_properties: Vec::new(),
-            };
-
-            let msg = changed.to_emit_message(&"/org/surface/dtx".into());
-
-            // send will only fail due to lack of memory
-            self.conn.send(msg).unwrap();
-        }
+        self.mode.set(self.conn.as_ref(), new);
     }
 }
 
@@ -131,5 +103,68 @@ impl<T> DbusStringArgument for T where T: DbusStrArgument {
 impl<T> DbusArgument for T where T: DbusStringArgument {
     fn as_variant(&self) -> Variant<Box<dyn dbus::arg::RefArg>> {
         Variant(Box::new(self.as_string()))
+    }
+}
+
+
+#[derive(Debug)]
+struct Property<T> {
+    name: &'static str,
+    value: Mutex<T>,
+}
+
+impl<T> Property<T> {
+    pub fn new(name: &'static str, value: T) -> Self {
+        Self { name, value: Mutex::new(value) }
+    }
+
+    pub fn set<C>(&self, conn: &C, value: T)
+    where
+        C: dbus::channel::Sender,
+        T: DbusArgument + PartialEq + std::fmt::Debug,
+    {
+        // update stored value and get variant
+        let value = {
+            let mut stored = self.value.lock().unwrap();
+
+            // check for actual change
+            if *stored == value {
+                return;
+            }
+
+            debug!(target: "sdtxd::srvc", object=Service::NAME, interface=Service::INTERFACE,
+                   name=self.name, old=?*stored, new=?value, "changing property");
+
+            *stored = value;
+            stored.as_variant()
+        };
+
+        // signal property changed
+        use dbus::arg::RefArg;
+        use dbus::message::SignalArgs;
+        use dbus::ffidisp::stdintf::org_freedesktop_dbus as dbffi;
+        use dbffi::PropertiesPropertiesChanged as PropertiesChanged;
+
+        let mut changed: HashMap<String, Variant<Box<dyn RefArg>>> = HashMap::new();
+        changed.insert(self.name.into(), value);
+
+        let changed = PropertiesChanged {
+            interface_name: Service::INTERFACE.into(),
+            changed_properties: changed,
+            invalidated_properties: Vec::new(),
+        };
+
+        let msg = changed.to_emit_message(&Service::NAME.into());
+
+        // send will only fail due to lack of memory
+        conn.send(msg).unwrap();
+    }
+}
+
+impl<T> std::ops::Deref for Property<T> {
+    type Target = Mutex<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
 }
