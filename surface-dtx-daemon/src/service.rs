@@ -20,6 +20,9 @@ pub struct Service {
 }
 
 impl Service {
+    const NAME: &'static str = "/org/surface/dtx";
+    const INTERFACE: &'static str = "org.surface.dtx";
+
     pub fn new(conn: Arc<SyncConnection>, device: Device) -> Arc<Self> {
         let service = Service {
             conn,
@@ -31,13 +34,13 @@ impl Service {
     }
 
     pub async fn request_name(&self) -> Result<()> {
-        self.conn.request_name("org.surface.dtx", false, true, false).await
+        self.conn.request_name(Self::INTERFACE, false, true, false).await
             .context("Failed to set up D-Bus service")
             .map(|_| ())
     }
 
     pub fn register(self: &Arc<Self>, cr: &mut Crossroads) -> Result<()> {
-        let iface_token = cr.register("org.surface.dtx", |b: &mut IfaceBuilder<Arc<Service>>| {
+        let iface_token = cr.register(Self::INTERFACE, |b: &mut IfaceBuilder<Arc<Service>>| {
             // device-mode property
             b.property("DeviceMode")
                 .emits_changed_true()
@@ -52,12 +55,12 @@ impl Service {
             });
         });
 
-        cr.insert("/org/surface/dtx", &[iface_token], self.clone());
+        cr.insert(Self::NAME, &[iface_token], self.clone());
         Ok(())
     }
 
     pub fn unregister(self: &Arc<Self>, cr: &mut Crossroads) {
-        let _ : Option<Arc<Service>> = cr.remove(&"/org/surface/dtx".into());
+        let _ : Option<Arc<Service>> = cr.remove(&Self::NAME.into());
     }
 
     #[allow(unused)]
@@ -80,7 +83,7 @@ impl Service {
             changed.insert("DeviceMode".into(), Variant(Box::new(format!("{}", new).to_lowercase())));
 
             let changed = PropertiesChanged {
-                interface_name: "org.surface.dtx".into(),
+                interface_name: Self::INTERFACE.into(),
                 changed_properties: changed,
                 invalidated_properties: Vec::new(),
             };
