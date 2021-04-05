@@ -1,13 +1,14 @@
+use crate::logic::DeviceMode;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
-use dbus::channel::Sender;
+use dbus::{arg::Variant, channel::Sender};
 use dbus::nonblock::SyncConnection;
 use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 
-use sdtx::DeviceMode;
 use sdtx_tokio::Device;
 
 use tracing::debug;
@@ -44,7 +45,7 @@ impl Service {
             // device-mode property
             b.property("DeviceMode")
                 .emits_changed_true()
-                .get(|_, service| { Ok(format!("{}", service.mode.lock().unwrap()).to_lowercase()) });
+                .get(|_, service| { Ok(service.mode.lock().unwrap().as_string()) });
 
             // request method
             b.method("Request", (), (), move |_ctx, service, _args: ()| {
@@ -74,13 +75,13 @@ impl Service {
 
         // signal property changed
         if old != new {
-            use dbus::arg::{Variant, RefArg};
+            use dbus::arg::RefArg;
             use dbus::message::SignalArgs;
             use dbus::ffidisp::stdintf::org_freedesktop_dbus as dbffi;
             use dbffi::PropertiesPropertiesChanged as PropertiesChanged;
 
             let mut changed: HashMap<String, Variant<Box<dyn RefArg>>> = HashMap::new();
-            changed.insert("DeviceMode".into(), Variant(Box::new(format!("{}", new).to_lowercase())));
+            changed.insert("DeviceMode".into(), new.as_variant());
 
             let changed = PropertiesChanged {
                 interface_name: Self::INTERFACE.into(),
@@ -93,5 +94,42 @@ impl Service {
             // send will only fail due to lack of memory
             self.conn.send(msg).unwrap();
         }
+    }
+}
+
+
+impl DbusStrArgument for DeviceMode {
+    fn as_str(&self) -> &str {
+        match self {
+            DeviceMode::Tablet => "tablet",
+            DeviceMode::Laptop => "laptop",
+            DeviceMode::Studio => "studio",
+        }
+    }
+}
+
+
+trait DbusArgument {
+    fn as_variant(&self) -> Variant<Box<dyn dbus::arg::RefArg>>;
+}
+
+trait DbusStrArgument {
+    fn as_str(&self) -> &str;
+}
+
+trait DbusStringArgument {
+    fn as_string(&self) -> String;
+}
+
+
+impl<T> DbusStringArgument for T where T: DbusStrArgument {
+    fn as_string(&self) -> String {
+        self.as_str().to_owned()
+    }
+}
+
+impl<T> DbusArgument for T where T: DbusStringArgument {
+    fn as_variant(&self) -> Variant<Box<dyn dbus::arg::RefArg>> {
+        Variant(Box::new(self.as_string()))
     }
 }
