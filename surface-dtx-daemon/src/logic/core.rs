@@ -305,7 +305,7 @@ impl<A: Adapter> Core<A> {
             };
 
             // notify adapter
-            return self.adapter.request_canceled(reason);
+            return self.adapter.request_inhibited(reason);
         }
 
         // if there is already a detachment in progress, cancel
@@ -415,7 +415,7 @@ impl<A: Adapter> Core<A> {
                 debug!(target: "sdtxd::core", %reason, "cancel: detachment prevented");
 
                 // forward to adapter
-                self.adapter.request_canceled(reason)
+                self.adapter.request_inhibited(reason)
             },
             EcState::InProgress | EcState::Confirmed => {   // detachment in progress
                 debug!(target: "sdtxd::core", %reason, "cancel: detachment canceled");
@@ -698,7 +698,7 @@ impl AtHandle {
 pub trait Adapter {
     fn set_state(&mut self, mode: DeviceMode, base: BaseInfo, latch: LatchState) { }
 
-    fn request_canceled(&mut self, reason: CancelReason) -> Result<()> {
+    fn request_inhibited(&mut self, reason: CancelReason) -> Result<()> {
         Ok(())
     }
 
@@ -765,9 +765,9 @@ macro_rules! impl_adapter_for_tuple {
                 ($($name.set_state(mode, base, latch),)+);
             }
 
-            fn request_canceled(&mut self, reason: CancelReason) -> Result<()> {
+            fn request_inhibited(&mut self, reason: CancelReason) -> Result<()> {
                 let ($($name,)+) = self;
-                ($($name.request_canceled(reason)?,)+);
+                ($($name.request_inhibited(reason)?,)+);
                 Ok(())
             }
 
