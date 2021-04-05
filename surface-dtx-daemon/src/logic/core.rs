@@ -457,7 +457,7 @@ impl<A: Adapter> Core<A> {
         debug!(target: "sdtxd::core", ?state, ?ty, id, "base: state changed");
 
         // fowrard to adapter
-        self.adapter.on_base_state(state, ty, id)?;
+        self.adapter.on_base_state(BaseInfo { state, device_type: ty, id })?;
 
         // handle actual transition
         match (old, state) {
@@ -742,7 +742,7 @@ pub trait Adapter {
         Ok(())
     }
 
-    fn on_base_state(&mut self, state: BaseState, ty: DeviceType, id: u8) -> Result<()> {
+    fn on_base_state(&mut self, info: BaseInfo) -> Result<()> {
         Ok(())
     }
 
@@ -831,9 +831,9 @@ macro_rules! impl_adapter_for_tuple {
                 Ok(())
             }
 
-            fn on_base_state(&mut self, state: BaseState, ty: DeviceType, id: u8) -> Result<()> {
+            fn on_base_state(&mut self, info: BaseInfo) -> Result<()> {
                 let ($($name,)+) = self;
-                ($($name.on_base_state(state, ty, id)?,)+);
+                ($($name.on_base_state(info)?,)+);
                 Ok(())
             }
 

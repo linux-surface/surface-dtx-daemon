@@ -1,4 +1,11 @@
-use crate::logic::{DeviceMode, HardwareError, LatchStatus};
+use crate::logic::{
+    BaseInfo,
+    BaseState,
+    DeviceMode,
+    DeviceType,
+    HardwareError,
+    LatchStatus,
+};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -45,6 +52,11 @@ impl Service {
                 .emits_changed_true()
                 .get(|_, service| Ok(service.latch_status.as_arg()));
 
+            // base info
+            b.property("Base")
+                .emits_changed_true()
+                .get(|_, service| Ok(service.base_info.as_arg()));
+
             // request method
             b.method("Request", (), (), move |_ctx, service, _args: ()| {
                 match service.device.latch_request() {
@@ -82,6 +94,10 @@ impl ServiceHandle {
     pub fn set_latch_status(&self, value: LatchStatus) {
         self.inner.latch_status.set(self.conn.as_ref(), value);
     }
+
+    pub fn set_base_info(&self, value: BaseInfo) {
+        self.inner.base_info.set(self.conn.as_ref(), value);
+    }
 }
 
 
@@ -89,14 +105,22 @@ struct ServiceInner {
     device: Device,
     device_mode: Property<DeviceMode>,
     latch_status: Property<LatchStatus>,
+    base_info: Property<BaseInfo>,
 }
 
 impl ServiceInner {
     fn new(device: Device) -> Self {
+        let base = BaseInfo {
+            state: BaseState::Attached,
+            device_type: DeviceType::Ssh,
+            id: 0,
+        };
+
         Self {
             device,
             device_mode: Property::new("DeviceMode", DeviceMode::Laptop),
             latch_status: Property::new("LatchStatus", LatchStatus::Closed),
+            base_info: Property::new("Base", base),
         }
     }
 }
@@ -137,6 +161,38 @@ impl DbusArg for LatchStatus {
                 HardwareError::FailedToClose      => "error:failed-to-close".into(),
                 HardwareError::Unknown(x) => format!("error:unknown:{}", x),
             },
+        }
+    }
+}
+
+impl DbusArg for BaseInfo {
+    type Arg = (String, String, u8);
+
+    fn as_arg(&self) -> Self::Arg {
+        (self.state.as_arg(), self.device_type.as_arg(), self.id)
+    }
+}
+
+impl DbusArg for BaseState {
+    type Arg = String;
+
+    fn as_arg(&self) -> Self::Arg {
+        match self {
+            BaseState::Detached    => "detached",
+            BaseState::Attached    => "attached",
+            BaseState::NotFeasible => "not-feasible",
+        }.into()
+    }
+}
+
+impl DbusArg for DeviceType {
+    type Arg = String;
+
+    fn as_arg(&self) -> Self::Arg {
+        match self {
+            DeviceType::Hid => "hid".into(),
+            DeviceType::Ssh => "ssh".into(),
+            DeviceType::Unknown(x) => format!("unknown:{}", x),
         }
     }
 }
