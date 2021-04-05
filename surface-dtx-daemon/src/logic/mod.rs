@@ -9,7 +9,7 @@ pub use self::srvc::ServiceAdapter;
 
 
 use sdtx::event;
-pub use sdtx::{BaseInfo, BaseState, DeviceMode, DeviceType, HardwareError};
+pub use sdtx::{BaseInfo, BaseState, DeviceMode, DeviceType, HardwareError, LatchStatus};
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

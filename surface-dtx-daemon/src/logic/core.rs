@@ -6,6 +6,7 @@ use crate::logic::{
     DeviceType,
     HardwareError,
     LatchState,
+    LatchStatus,
     RuntimeError,
 };
 
@@ -17,7 +18,6 @@ use anyhow::{Context, Result};
 use futures::prelude::*;
 
 use sdtx::event;
-use sdtx::LatchStatus;
 use sdtx_tokio::Device;
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};

@@ -1,4 +1,4 @@
-use crate::logic::{Adapter, DeviceMode};
+use crate::logic::{Adapter, DeviceMode, LatchStatus};
 use crate::service::ServiceHandle;
 
 use anyhow::Result;
@@ -17,6 +17,11 @@ impl ServiceAdapter {
 impl Adapter for ServiceAdapter {
     fn on_device_mode(&mut self, mode: DeviceMode) -> Result<()> {
         self.service.set_device_mode(mode);
+        Ok(())
+    }
+
+    fn on_latch_status(&mut self, status: LatchStatus) -> Result<()> {
+        self.service.set_latch_status(status);
         Ok(())
     }
 }

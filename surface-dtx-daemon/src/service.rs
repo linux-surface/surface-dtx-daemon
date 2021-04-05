@@ -1,4 +1,4 @@
-use crate::logic::DeviceMode;
+use crate::logic::{DeviceMode, HardwareError, LatchStatus};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -38,7 +38,12 @@ impl Service {
             // device-mode property
             b.property("DeviceMode")
                 .emits_changed_true()
-                .get(|_, service| { Ok(service.mode.lock().unwrap().as_string()) });
+                .get(|_, service| { Ok(service.device_mode.lock().unwrap().as_string()) });
+
+            // latch status
+            b.property("LatchStatus")
+                .emits_changed_true()
+                .get(|_, service| Ok(service.latch_status.lock().unwrap().as_string()));
 
             // request method
             b.method("Request", (), (), move |_ctx, service, _args: ()| {
@@ -70,22 +75,28 @@ pub struct ServiceHandle {
 }
 
 impl ServiceHandle {
-    pub fn set_device_mode(&self, new: DeviceMode) {
-        self.inner.mode.set(self.conn.as_ref(), new);
+    pub fn set_device_mode(&self, value: DeviceMode) {
+        self.inner.device_mode.set(self.conn.as_ref(), value);
+    }
+
+    pub fn set_latch_status(&self, value: LatchStatus) {
+        self.inner.latch_status.set(self.conn.as_ref(), value);
     }
 }
 
 
 struct ServiceInner {
     device: Device,
-    mode: Property<DeviceMode>,
+    device_mode: Property<DeviceMode>,
+    latch_status: Property<LatchStatus>,
 }
 
 impl ServiceInner {
     fn new(device: Device) -> Self {
         Self {
             device,
-            mode: Property::new("DeviceMode", DeviceMode::Laptop),
+            device_mode: Property::new("DeviceMode", DeviceMode::Laptop),
+            latch_status: Property::new("LatchStatus", LatchStatus::Closed),
         }
     }
 }
@@ -97,6 +108,21 @@ impl DbusStrArgument for DeviceMode {
             DeviceMode::Tablet => "tablet",
             DeviceMode::Laptop => "laptop",
             DeviceMode::Studio => "studio",
+        }
+    }
+}
+
+impl DbusStringArgument for LatchStatus {
+    fn as_string(&self) -> String {
+        match self {
+            LatchStatus::Closed => "closed".into(),
+            LatchStatus::Opened => "opened".into(),
+            LatchStatus::Error(error) => match error {
+                HardwareError::FailedToOpen       => "error:failed-to-open".into(),
+                HardwareError::FailedToRemainOpen => "error:failed-to-remain-open".into(),
+                HardwareError::FailedToClose      => "error:failed-to-close".into(),
+                HardwareError::Unknown(x) => format!("error:unknown:{}", x),
+            },
         }
     }
 }
