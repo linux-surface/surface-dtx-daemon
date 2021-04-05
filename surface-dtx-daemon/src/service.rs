@@ -16,22 +16,15 @@ use tracing::debug;
 
 pub struct Service {
     conn: Arc<SyncConnection>,
-    device: Device,
-    mode: Property<DeviceMode>,
+    inner: Arc<ServiceInner>,
 }
 
 impl Service {
     const NAME: &'static str = "/org/surface/dtx";
     const INTERFACE: &'static str = "org.surface.dtx";
 
-    pub fn new(conn: Arc<SyncConnection>, device: Device) -> Arc<Self> {
-        let service = Service {
-            conn,
-            device,
-            mode: Property::new("DeviceMode", DeviceMode::Laptop),
-        };
-
-        Arc::new(service)
+    pub fn new(conn: Arc<SyncConnection>, device: Device) -> Self {
+        Self { conn, inner: Arc::new(ServiceInner::new(device)) }
     }
 
     pub async fn request_name(&self) -> Result<()> {
@@ -40,8 +33,8 @@ impl Service {
             .map(|_| ())
     }
 
-    pub fn register(self: &Arc<Self>, cr: &mut Crossroads) -> Result<()> {
-        let iface_token = cr.register(Self::INTERFACE, |b: &mut IfaceBuilder<Arc<Service>>| {
+    pub fn register(&self, cr: &mut Crossroads) -> Result<()> {
+        let iface_token = cr.register(Self::INTERFACE, |b: &mut IfaceBuilder<Arc<ServiceInner>>| {
             // device-mode property
             b.property("DeviceMode")
                 .emits_changed_true()
@@ -56,16 +49,44 @@ impl Service {
             });
         });
 
-        cr.insert(Self::NAME, &[iface_token], self.clone());
+        cr.insert(Self::NAME, &[iface_token], self.inner.clone());
         Ok(())
     }
 
-    pub fn unregister(self: &Arc<Self>, cr: &mut Crossroads) {
-        let _ : Option<Arc<Service>> = cr.remove(&Self::NAME.into());
+    pub fn unregister(&self, cr: &mut Crossroads) {
+        let _ : Option<Arc<ServiceInner>> = cr.remove(&Self::NAME.into());
     }
 
+    pub fn handle(&self) -> ServiceHandle {
+        ServiceHandle { conn: self.conn.clone(), inner: self.inner.clone() }
+    }
+}
+
+
+#[derive(Clone)]
+pub struct ServiceHandle {
+    conn: Arc<SyncConnection>,
+    inner: Arc<ServiceInner>,
+}
+
+impl ServiceHandle {
     pub fn set_device_mode(&self, new: DeviceMode) {
-        self.mode.set(self.conn.as_ref(), new);
+        self.inner.mode.set(self.conn.as_ref(), new);
+    }
+}
+
+
+struct ServiceInner {
+    device: Device,
+    mode: Property<DeviceMode>,
+}
+
+impl ServiceInner {
+    fn new(device: Device) -> Self {
+        Self {
+            device,
+            mode: Property::new("DeviceMode", DeviceMode::Laptop),
+        }
     }
 }
 

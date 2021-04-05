@@ -1,17 +1,15 @@
 use crate::logic::{Adapter, DeviceMode};
-use crate::service::Service;
-
-use std::sync::Arc;
+use crate::service::ServiceHandle;
 
 use anyhow::Result;
 
 
 pub struct ServiceAdapter {
-    service: Arc<Service>,
+    service: ServiceHandle,
 }
 
 impl ServiceAdapter {
-    pub fn new(service: Arc<Service>) -> Self {
+    pub fn new(service: ServiceHandle) -> Self {
         Self { service }
     }
 }
