@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use dbus::arg::Variant;
 
-use tracing::debug;
+use tracing::trace;
 
 
 #[derive(Debug)]
@@ -34,7 +34,7 @@ impl<T> Property<T> {
                 return;
             }
 
-            debug!(target: "sdtxd::srvc", object=Service::PATH, interface=Service::INTERFACE,
+            trace!(target: "sdtxd::srvc", object=Service::PATH, interface=Service::INTERFACE,
                    name=self.name, old=?*stored, new=?value, "changing property");
 
             *stored = value;

@@ -4,7 +4,7 @@ use crate::service::arg::DbusArg;
 use dbus::arg::{Append, Dict, RefArg, Variant};
 
 
-
+#[derive(Debug, Clone, Copy)]
 pub enum Event {
     DetachmentInhibited { reason: CancelReason },
     DetachmentStart,

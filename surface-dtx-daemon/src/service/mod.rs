@@ -27,6 +27,8 @@ use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 
 use sdtx_tokio::Device;
 
+use tracing::trace;
+
 
 pub struct Service {
     conn: Arc<SyncConnection>,
@@ -119,6 +121,9 @@ impl ServiceHandle {
         // build signal message
         let mut signal = Message::signal(&path, &interface, &"Event".into());
         signal.append_all(event);
+
+        trace!(target: "sdtxd::srvc", object=Service::PATH, interface=Service::INTERFACE,
+               value=?event, "emmiting event");
 
         // only fails when memory runs out
         self.conn.send(signal).unwrap();
