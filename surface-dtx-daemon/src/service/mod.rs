@@ -29,7 +29,7 @@ pub struct Service {
 }
 
 impl Service {
-    const NAME: &'static str = "/org/surface/dtx";
+    const PATH: &'static str = "/org/surface/dtx";
     const INTERFACE: &'static str = "org.surface.dtx";
 
     pub fn new(conn: Arc<SyncConnection>, device: Device) -> Self {
@@ -68,12 +68,12 @@ impl Service {
             });
         });
 
-        cr.insert(Self::NAME, &[iface_token], self.inner.clone());
+        cr.insert(Self::PATH, &[iface_token], self.inner.clone());
         Ok(())
     }
 
     pub fn unregister(&self, cr: &mut Crossroads) {
-        let _ : Option<Arc<Shared>> = cr.remove(&Self::NAME.into());
+        let _ : Option<Arc<Shared>> = cr.remove(&Self::PATH.into());
     }
 
     pub fn handle(&self) -> ServiceHandle {

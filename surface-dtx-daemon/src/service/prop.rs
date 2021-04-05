@@ -34,7 +34,7 @@ impl<T> Property<T> {
                 return;
             }
 
-            debug!(target: "sdtxd::srvc", object=Service::NAME, interface=Service::INTERFACE,
+            debug!(target: "sdtxd::srvc", object=Service::PATH, interface=Service::INTERFACE,
                    name=self.name, old=?*stored, new=?value, "changing property");
 
             *stored = value;
@@ -56,7 +56,7 @@ impl<T> Property<T> {
             invalidated_properties: Vec::new(),
         };
 
-        let msg = changed.to_emit_message(&Service::NAME.into());
+        let msg = changed.to_emit_message(&Service::PATH.into());
 
         // send will only fail due to lack of memory
         conn.send(msg).unwrap();
