@@ -1,5 +1,6 @@
 use crate::logic::{
     Adapter,
+    AtHandle,
     BaseInfo,
     CancelReason,
     DeviceMode,
@@ -45,6 +46,11 @@ impl Adapter for ServiceAdapter {
         Ok(())
     }
 
+    fn request_inhibited(&mut self, reason: CancelReason) -> Result<()> {
+        self.service.emit_event(Event::DetachmentInhibited { reason });
+        Ok(())
+    }
+
     fn detachment_start(&mut self, _handle: DtHandle) -> Result<()> {
         self.service.emit_event(Event::DetachmentStart);
         Ok(())
@@ -72,6 +78,26 @@ impl Adapter for ServiceAdapter {
 
     fn detachment_cancel_timeout(&mut self) -> Result<()> {
         self.service.emit_event(Event::DetachmentCancelTimeout);
+        Ok(())
+    }
+
+    fn detachment_unexpected(&mut self) -> Result<()> {
+        self.service.emit_event(Event::DetachmentUnexpected);
+        Ok(())
+    }
+
+    fn attachment_start(&mut self, _handle: AtHandle) -> Result<()> {
+        self.service.emit_event(Event::AttachmentStart);
+        Ok(())
+    }
+
+    fn attachment_complete(&mut self) -> Result<()> {
+        self.service.emit_event(Event::AttachmentComplete);
+        Ok(())
+    }
+
+    fn attachment_timeout(&mut self) -> Result<()> {
+        self.service.emit_event(Event::AttachmentTimeout);
         Ok(())
     }
 }

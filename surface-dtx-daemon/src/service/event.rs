@@ -6,23 +6,33 @@ use dbus::arg::{Append, Dict, RefArg, Variant};
 
 
 pub enum Event {
+    DetachmentInhibited { reason: CancelReason },
     DetachmentStart,
     DetachmentComplete,
     DetachmentTimeout,
     DetachmentCancelStart { reason: CancelReason },
     DetachmentCancelComplete,
     DetachmentCancelTimeout,
+    DetachmentUnexpected,
+    AttachmentStart,
+    AttachmentComplete,
+    AttachmentTimeout,
 }
 
 impl dbus::arg::AppendAll for Event {
     fn append(&self, ia: &mut dbus::arg::IterAppend) {
         match self {
-            Event::DetachmentStart                  => append0(ia, "detachment:start"),
-            Event::DetachmentComplete               => append0(ia, "detachment:complete"),
-            Event::DetachmentTimeout                => append0(ia, "detachment:timeout"),
-            Event::DetachmentCancelStart { reason } => append1(ia, "detachment:cancel:start", "reason", reason),
-            Event::DetachmentCancelComplete         => append0(ia, "detachment:cancel:complete"),
-            Event::DetachmentCancelTimeout          => append0(ia, "detachment:cancel:timeout"),
+            Self::DetachmentInhibited { reason }   => append1(ia, "detachment:inhibited", "reason", reason),
+            Self::DetachmentStart                  => append0(ia, "detachment:start"),
+            Self::DetachmentComplete               => append0(ia, "detachment:complete"),
+            Self::DetachmentTimeout                => append0(ia, "detachment:timeout"),
+            Self::DetachmentCancelStart { reason } => append1(ia, "detachment:cancel:start", "reason", reason),
+            Self::DetachmentCancelComplete         => append0(ia, "detachment:cancel:complete"),
+            Self::DetachmentCancelTimeout          => append0(ia, "detachment:cancel:timeout"),
+            Self::DetachmentUnexpected             => append0(ia, "detachment:unexpected"),
+            Self::AttachmentStart                  => append0(ia, "attachment:start"),
+            Self::AttachmentComplete               => append0(ia, "attachment:complete"),
+            Self::AttachmentTimeout                => append0(ia, "attachment:timeout"),
         }
     }
 }
