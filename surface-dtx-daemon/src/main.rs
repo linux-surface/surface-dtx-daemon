@@ -1,6 +1,6 @@
 #[macro_use]
 mod utils;
-use utils::JoinHandleExt;
+use utils::task::JoinHandleExt;
 
 mod cli;
 
@@ -11,8 +11,6 @@ mod logic;
 
 mod service;
 use service::Service;
-
-mod tq;
 
 
 use std::sync::{Arc, Mutex};
@@ -110,13 +108,13 @@ async fn run() -> Result<()> {
         true
     }));
 
-    let recv_guard = utils::guard(|| { let _ = dbus_conn.stop_receive(token).unwrap(); });
-    let serv_guard = utils::guard(|| { serv.unregister(&mut dbus_cr.lock().unwrap()); });
+    let recv_guard = utils::scope::guard(|| { let _ = dbus_conn.stop_receive(token).unwrap(); });
+    let serv_guard = utils::scope::guard(|| { serv.unregister(&mut dbus_cr.lock().unwrap()); });
 
     // set up task-queue
     trace!(target: "sdtxd", "setting up task queue");
 
-    let (mut queue, queue_tx) = tq::new();
+    let (mut queue, queue_tx) = utils::taskq::new();
     let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
 
     // set up event handler

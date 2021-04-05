@@ -6,7 +6,7 @@ use crate::logic::{
     DtHandle,
     DtcHandle,
 };
-use crate::tq::TaskSender;
+use crate::utils::taskq::TaskSender;
 
 use std::time::Duration;
 
