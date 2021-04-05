@@ -4,6 +4,10 @@ pub use self::core::{Adapter, AtHandle, Core, DtHandle, DtcHandle};
 mod proc;
 pub use self::proc::ProcessAdapter;
 
+mod srvc;
+pub use self::srvc::ServiceAdapter;
+
+
 use sdtx::event;
 pub use sdtx::{BaseInfo, BaseState, DeviceMode, DeviceType, HardwareError};
 

@@ -120,8 +120,10 @@ async fn run() -> Result<()> {
     // set up event handler
     trace!(target: "sdtxd", "setting up DTX event handling");
 
-    let adapter = logic::ProcessAdapter::new(config, queue_tx);
-    let mut core = logic::Core::new(event_device, adapter);
+    let proc_adp = logic::ProcessAdapter::new(config, queue_tx);
+    let srvc_adp = logic::ServiceAdapter::new(serv.clone());
+
+    let mut core = logic::Core::new(event_device, (proc_adp, srvc_adp));
     let mut event_task = tokio::spawn(async move { core.run().await }).guard();
 
     // collect main driver tasks
