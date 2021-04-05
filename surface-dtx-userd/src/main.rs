@@ -1,7 +1,6 @@
 mod cli;
 mod config;
 mod logic;
-mod notify;
 mod utils;
 
 use crate::config::Config;

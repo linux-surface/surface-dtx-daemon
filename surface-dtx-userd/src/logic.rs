@@ -1,5 +1,5 @@
-use crate::notify::{Notification, NotificationHandle, Timeout};
-use crate::utils::JoinHandleExt;
+use crate::utils::notify::{Notification, NotificationHandle, Timeout};
+use crate::utils::task::JoinHandleExt;
 
 use std::str::FromStr;
 use std::sync::Arc;

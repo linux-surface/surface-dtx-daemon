@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -31,6 +29,7 @@ pub struct NotificationHandle {
 }
 
 
+#[allow(unused)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Timeout {
     Unspecified,
@@ -39,6 +38,7 @@ pub enum Timeout {
 }
 
 
+#[allow(unused)]
 impl<'a> Notification<'a> {
     pub fn create<S: Into<Cow<'a, str>>>(app_name: S) -> NotificationBuilder<'a> {
         NotificationBuilder { notif: Notification::new(app_name) }
@@ -128,6 +128,7 @@ impl<'a> Notification<'a> {
 }
 
 
+#[allow(unused)]
 impl<'a> NotificationBuilder<'a> {
     pub fn build(self) -> Notification<'a> {
         self.notif
