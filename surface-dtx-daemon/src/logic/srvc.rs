@@ -22,13 +22,13 @@ impl ServiceAdapter {
 
 impl Adapter for ServiceAdapter {
     fn set_state(&mut self, mode: DeviceMode, base: BaseInfo, latch: LatchState) {
-        self.service.set_device_mode(mode);
         self.service.set_base_info(base);
         self.service.set_latch_status(latch.into());
+        self.service.set_device_mode(mode);
     }
 
-    fn on_device_mode(&mut self, mode: DeviceMode) -> Result<()> {
-        self.service.set_device_mode(mode);
+    fn on_base_state(&mut self, info: BaseInfo) -> Result<()> {
+        self.service.set_base_info(info);
         Ok(())
     }
 
@@ -37,8 +37,8 @@ impl Adapter for ServiceAdapter {
         Ok(())
     }
 
-    fn on_base_state(&mut self, info: BaseInfo) -> Result<()> {
-        self.service.set_base_info(info);
+    fn on_device_mode(&mut self, mode: DeviceMode) -> Result<()> {
+        self.service.set_device_mode(mode);
         Ok(())
     }
 }
