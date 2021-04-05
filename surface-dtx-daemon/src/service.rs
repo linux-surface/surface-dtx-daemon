@@ -38,12 +38,12 @@ impl Service {
             // device-mode property
             b.property("DeviceMode")
                 .emits_changed_true()
-                .get(|_, service| { Ok(service.device_mode.lock().unwrap().as_string()) });
+                .get(|_, service| { Ok(service.device_mode.as_arg()) });
 
             // latch status
             b.property("LatchStatus")
                 .emits_changed_true()
-                .get(|_, service| Ok(service.latch_status.lock().unwrap().as_string()));
+                .get(|_, service| Ok(service.latch_status.as_arg()));
 
             // request method
             b.method("Request", (), (), move |_ctx, service, _args: ()| {
@@ -102,18 +102,32 @@ impl ServiceInner {
 }
 
 
-impl DbusStrArgument for DeviceMode {
-    fn as_str(&self) -> &str {
+trait DbusArg {
+    type Arg: dbus::arg::RefArg + 'static;
+
+    fn as_arg(&self) -> Self::Arg;
+
+    fn as_variant(&self) -> Variant<Box<dyn dbus::arg::RefArg>> {
+        Variant(Box::new(self.as_arg()))
+    }
+}
+
+impl DbusArg for DeviceMode {
+    type Arg = String;
+
+    fn as_arg(&self) -> String {
         match self {
             DeviceMode::Tablet => "tablet",
             DeviceMode::Laptop => "laptop",
             DeviceMode::Studio => "studio",
-        }
+        }.into()
     }
 }
 
-impl DbusStringArgument for LatchStatus {
-    fn as_string(&self) -> String {
+impl DbusArg for LatchStatus {
+    type Arg = String;
+
+    fn as_arg(&self) -> String {
         match self {
             LatchStatus::Closed => "closed".into(),
             LatchStatus::Opened => "opened".into(),
@@ -124,32 +138,6 @@ impl DbusStringArgument for LatchStatus {
                 HardwareError::Unknown(x) => format!("error:unknown:{}", x),
             },
         }
-    }
-}
-
-
-trait DbusArgument {
-    fn as_variant(&self) -> Variant<Box<dyn dbus::arg::RefArg>>;
-}
-
-trait DbusStrArgument {
-    fn as_str(&self) -> &str;
-}
-
-trait DbusStringArgument {
-    fn as_string(&self) -> String;
-}
-
-
-impl<T> DbusStringArgument for T where T: DbusStrArgument {
-    fn as_string(&self) -> String {
-        self.as_str().to_owned()
-    }
-}
-
-impl<T> DbusArgument for T where T: DbusStringArgument {
-    fn as_variant(&self) -> Variant<Box<dyn dbus::arg::RefArg>> {
-        Variant(Box::new(self.as_string()))
     }
 }
 
@@ -168,7 +156,7 @@ impl<T> Property<T> {
     pub fn set<C>(&self, conn: &C, value: T)
     where
         C: dbus::channel::Sender,
-        T: DbusArgument + PartialEq + std::fmt::Debug,
+        T: DbusArg + PartialEq + std::fmt::Debug,
     {
         // update stored value and get variant
         let value = {
@@ -205,6 +193,17 @@ impl<T> Property<T> {
 
         // send will only fail due to lack of memory
         conn.send(msg).unwrap();
+    }
+}
+
+impl<T> DbusArg for Property<T>
+where
+    T: DbusArg
+{
+    type Arg = T::Arg;
+
+    fn as_arg(&self) -> Self::Arg {
+        self.value.lock().unwrap().as_arg()
     }
 }
 
