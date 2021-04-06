@@ -60,8 +60,23 @@ impl Core {
             return Ok(());
         }
 
-        // TODO: display detachment-ready notification
+        // display detachment-ready notification
+        let handle = Notification::create("Surface DTX")
+            .summary("Surface DTX: Clipboard can be detached")
+            .body("You can disconnect the clipboard now.")
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", "device.removed")
+            .hint("urgency", 2)
+            .hint("resident", true)
+            .expires(Timeout::Never)
+            .build()
+            .show(&self.session).await
+            .context("Failed to display notification")?;
 
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "detach-ready",
+               "displaying notification");
+
+        self.notif = Some(handle);
         Ok(())
     }
 
@@ -83,22 +98,75 @@ impl Core {
     }
 
     async fn on_detachment_cancel_timeout(&mut self) -> Result<()> {
-        // TODO: show error notification
+        let handle = Notification::create("Surface DTX")
+            .summary("Surface DTX: Error")
+            .body("The detachment cancellation handler has timed out. \
+                   This may lead to data loss! \
+                   Please consult the logs for more details.")
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", "device.error")
+            .hint("urgency", 2)
+            .build()
+            .show(&self.session).await
+            .context("Failed to display notification")?;
+
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "detach-cancel-timeout",
+               "displaying notification");
+
         Ok(())
     }
 
     async fn on_detachment_unexpected(&mut self) -> Result<()> {
-        // TODO: show error notification
+        let handle = Notification::create("Surface DTX")
+            .summary("Surface DTX: Error")
+            .body("Base disconnected unexpectedly. \
+                   This may lead to data loss! \
+                   Please consult the logs for more details.")
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", "device.error")
+            .hint("urgency", 2)
+            .build()
+            .show(&self.session).await
+            .context("Failed to display notification")?;
+
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "detach-unexpected",
+               "displaying notification");
+
         Ok(())
     }
 
     async fn on_attachment_complete(&mut self) -> Result<()> {
-        // TODO: show info notification
+        let handle = Notification::create("Surface DTX")
+            .summary("Surface DTX: Base attached")
+            .body("The base has been successfully attached and is now fully usable.")
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", "device.added")
+            .hint("transient", true)
+            .build()
+            .show(&self.session).await
+            .context("Failed to display notification")?;
+
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "attach-complete",
+               "displaying notification");
+
         Ok(())
     }
 
     async fn on_attachment_timeout(&mut self) -> Result<()> {
-        // TODO: show error notification
+        let handle = Notification::create("Surface DTX")
+            .summary("Surface DTX: Error")
+            .body("The attachment handler has timed out. \
+                   Please consult the logs for more details.")
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", "device.error")
+            .hint("urgency", 2)
+            .build()
+            .show(&self.session).await
+            .context("Failed to display notification")?;
+
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "attach-timeout",
+               "displaying notification");
+
         Ok(())
     }
 
@@ -112,44 +180,5 @@ impl Core {
             },
             None => Ok(()),
         }
-    }
-
-    #[allow(unused)]
-    async fn notify_detach_ready(&mut self) -> Result<()> {
-        let handle = Notification::create("Surface DTX")
-            .summary("Surface DTX")
-            .body("Clipboard can be detached.")
-            .hint_s("image-path", "input-tablet")
-            .hint_s("category", "device")
-            .hint("urgency", 2)
-            .hint("resident", true)
-            .expires(Timeout::Never)
-            .build()
-            .show(&self.session).await
-            .context("Failed to display notification")?;
-
-        trace!(target: "sdtxu::notify", id = handle.id, ty = "detach-ready",
-               "displaying notification");
-
-        self.notif = Some(handle);
-        Ok(())
-    }
-
-    #[allow(unused)]
-    async fn notify_attach_completed(&self) -> Result<()> {
-        let handle = Notification::create("Surface DTX")
-            .summary("Surface DTX")
-            .body("Clipboard attached.")
-            .hint_s("image-path", "input-tablet")
-            .hint_s("category", "device")
-            .hint("transient", true)
-            .build()
-            .show(&self.session).await
-            .context("Failed to display notification")?;
-
-        trace!(target: "sdtxu::notify", id = handle.id, ty = "attach-complete",
-               "displaying notification");
-
-        Ok(())
     }
 }
