@@ -6,7 +6,7 @@ ConditionUser=!root
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/surface-dtx-userd
+ExecStart=/usr/bin/surface-dtx-userd --no-log-time
 
 [Install]
 WantedBy=default.target

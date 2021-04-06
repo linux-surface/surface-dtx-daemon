@@ -6,7 +6,7 @@ Wants=dev-surface-dtx.device
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/surface-dtx-daemon
+ExecStart=/usr/bin/surface-dtx-daemon --no-log-time
 
 [Install]
 WantedBy=multi-user.target
