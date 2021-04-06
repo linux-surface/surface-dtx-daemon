@@ -1,3 +1,7 @@
+mod types;
+use types::Event;
+
+
 use crate::utils::notify::{Notification, NotificationHandle, Timeout};
 use crate::utils::task::JoinHandleExt;
 
@@ -34,7 +38,7 @@ pub async fn run() -> Result<()> {
     let mut main_task = tokio::spawn(async move {
         let mut core = Core::new(ses_conn);
 
-        let mr = MatchRule::new_signal("org.surface.dtx", "DetachStateChanged");
+        let mr = MatchRule::new_signal("org.surface.dtx", "Event");
         let (_msgs, mut stream) = sys_conn
             .add_match(mr).await
             .context("Failed to set up D-Bus connection")?
@@ -117,37 +121,20 @@ impl Core {
     }
 
     async fn handle(&mut self, mut message: Message) -> Result<()> {
-        let m = message.as_result()
-            .context("D-Bus remote error")?;
+        trace!(target: "sdtxu::core", msg = ?message, "message received");
 
-        trace!(msg = ?m, "message received");
+        let m = message.as_result().context("D-Bus remote error")?;
 
-        // ignore any message that is not intended for us
-        if m.interface() != Some("org.surface.dtx".into()) {
-            return Ok(());
+        if let Some(event) = Event::try_from_message(m)? {
+            debug!(target: "sdtxu::core", ?event, "event received");
+
+            // TODO
         }
 
-        if m.member() != Some("DetachStateChanged".into()) {
-            return Ok(());
-        }
-
-        // get status argument
-        let status: Status = m.read1::<&str>()
-            .context("Protocol error")?
-            .parse()
-            .context("Protocol error")?;
-
-        debug!(status = %status, "detach-state changed");
-
-        // handle status notification
-        match status {
-            Status::DetachReady     => self.notify_detach_ready().await,
-            Status::DetachCompleted => self.notify_detach_completed().await,
-            Status::DetachAborted   => self.notify_detach_completed().await,
-            Status::AttachCompleted => self.notify_attach_completed().await,
-        }
+        Ok(())
     }
 
+    #[allow(unused)]
     async fn notify_detach_ready(&mut self) -> Result<()> {
         let handle = Notification::create("Surface DTX")
             .summary("Surface DTX")
@@ -161,16 +148,17 @@ impl Core {
             .show(&self.session).await
             .context("Failed to display notification")?;
 
-        trace!(target: "surface_dtx_userd::notify", id = handle.id, ty = "detach-ready",
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "detach-ready",
                "displaying notification");
 
         self.detach_notif = Some(handle);
         Ok(())
     }
 
+    #[allow(unused)]
     async fn notify_detach_completed(&mut self) -> Result<()> {
         if let Some(handle) = self.detach_notif {
-            trace!(target: "surface_dtx_userd::notify", id = handle.id, ty = "detach-ready",
+            trace!(target: "sdtxu::notify", id = handle.id, ty = "detach-ready",
                    "closing notification");
 
             handle.close(&self.session).await
@@ -180,6 +168,7 @@ impl Core {
         Ok(())
     }
 
+    #[allow(unused)]
     async fn notify_attach_completed(&self) -> Result<()> {
         let handle = Notification::create("Surface DTX")
             .summary("Surface DTX")
@@ -191,7 +180,7 @@ impl Core {
             .show(&self.session).await
             .context("Failed to display notification")?;
 
-        trace!(target: "surface_dtx_userd::notify", id = handle.id, ty = "attach-complete",
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "attach-complete",
                "displaying notification");
 
         Ok(())
