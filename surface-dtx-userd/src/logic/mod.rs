@@ -46,7 +46,6 @@ pub async fn run() -> Result<()> {
 
             let msg = msg.as_result().context("D-Bus remote error")?;
             let evt = Event::try_from_message(msg)?;
-            drop(msg);
 
             if let Some(evt) = evt {
                 core.handle(evt).await?;
