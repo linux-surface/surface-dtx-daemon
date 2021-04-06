@@ -1,24 +1,21 @@
+#[macro_use]
+mod utils;
+use utils::task::JoinHandleExt;
+
 mod cli;
 
 mod config;
 use config::Config;
 
 mod logic;
-use logic::EventHandler;
 
 mod service;
 use service::Service;
 
-mod tq;
-use tq::TaskQueue;
-
-mod utils;
-use utils::JoinHandleExt;
-
 
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Error, Result};
+use anyhow::{Context, Result};
 
 use dbus::channel::MatchingReceiver;
 use dbus::message::MatchRule;
@@ -27,33 +24,12 @@ use dbus_crossroads::Crossroads;
 
 use futures::prelude::*;
 
-use slog::{crit, debug, info, o, warn, Logger};
-
 use tokio::signal::unix::{signal, SignalKind};
 
+use tracing::{error, info, trace, warn};
 
-type Task = tq::Task<Error>;
 
-
-fn build_logger(config: &Config) -> Logger {
-    use slog::Drain;
-
-    let decorator = slog_term::TermDecorator::new()
-        .build();
-
-    let drain = slog_term::FullFormat::new(decorator)
-        .use_original_order()
-        .build()
-        .filter_level(config.log.level.into())
-        .fuse();
-
-    let drain = std::sync::Mutex::new(drain)
-        .fuse();
-
-    Logger::root(drain, o!())
-}
-
-fn bootstrap() -> Result<(Logger, Config)> {
+fn bootstrap() -> Result<Config> {
     // handle command line input
     let matches = cli::app().get_matches();
 
@@ -64,18 +40,32 @@ fn bootstrap() -> Result<(Logger, Config)> {
     };
 
     // set up logger
-    let logger = build_logger(&config);
+    let ansi = atty::is(atty::Stream::Stdout);
+
+    let filter = tracing_subscriber::EnvFilter::from_env("SDTXD_LOG")
+        .add_directive(tracing::Level::from(config.log.level).into());
+
+    let fmt = tracing_subscriber::fmt::format::PrettyFields::new()
+        .with_ansi(ansi);
+
+    tracing_subscriber::fmt()
+        .fmt_fields(fmt)
+        .with_env_filter(filter)
+        .with_ansi(atty::is(atty::Stream::Stdout))
+        .init();
 
     // warn about unknown config items
-    for item in diag.unknowns {
-        warn!(logger, "Unknown config item"; "item" => item, "file" => ?diag.path)
-    }
+    diag.log();
 
-    Ok((logger, config))
+    Ok(config)
 }
 
-async fn run(logger: Logger, config: Config) -> Result<()> {
+async fn run() -> Result<()> {
+    let config = bootstrap()?;
+
     // set up signal handling
+    trace!(target: "sdtxd", "setting up signal handling");
+
     let mut sigint = signal(SignalKind::interrupt()).context("Failed to set up signal handling")?;
     let mut sigterm = signal(SignalKind::terminate()).context("Failed to set up signal handling")?;
 
@@ -85,6 +75,8 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     }};
 
     // prepare devices
+    trace!(target: "sdtxd", "preparing devices");
+
     let event_device = sdtx_tokio::connect().await
         .context("Failed to access DTX device")?;
 
@@ -92,6 +84,8 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         .context("Failed to access DTX device")?;
 
     // set up D-Bus connection
+    trace!(target: "sdtxd", "connecting to D-Bus");
+
     let (dbus_rsrc, dbus_conn) = connection::new_system_sync()
         .context("Failed to connect to D-Bus")?;
 
@@ -99,9 +93,11 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
     let mut dbus_task = tokio::spawn(dbus_rsrc).guard();
 
     // set up D-Bus service
+    trace!(target: "sdtxd", "setting up D-Bus service");
+
     let dbus_cr = Arc::new(Mutex::new(Crossroads::new()));
 
-    let serv = Service::new(&logger, &dbus_conn, control_device);
+    let serv = Service::new(dbus_conn.clone(), control_device);
     serv.request_name().await?;
     serv.register(&mut dbus_cr.lock().unwrap())?;
 
@@ -112,16 +108,23 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         true
     }));
 
-    let recv_guard = utils::guard(|| { let _ = dbus_conn.stop_receive(token).unwrap(); });
-    let serv_guard = utils::guard(|| { serv.unregister(&mut dbus_cr.lock().unwrap()); });
+    let recv_guard = utils::scope::guard(|| { let _ = dbus_conn.stop_receive(token).unwrap(); });
+    let serv_guard = utils::scope::guard(|| { serv.unregister(&mut dbus_cr.lock().unwrap()); });
 
     // set up task-queue
-    let (mut queue, queue_tx) = TaskQueue::new();
+    trace!(target: "sdtxd", "setting up task queue");
+
+    let (mut queue, queue_tx) = utils::taskq::new();
     let mut queue_task = tokio::spawn(async move { queue.run().await }).guard();
 
     // set up event handler
-    let mut event_handler = EventHandler::new(&logger, config, &serv, event_device, queue_tx);
-    let mut event_task = tokio::spawn(async move { event_handler.run().await }).guard();
+    trace!(target: "sdtxd", "setting up DTX event handling");
+
+    let proc_adp = logic::ProcessAdapter::new(config, queue_tx);
+    let srvc_adp = logic::ServiceAdapter::new(serv.handle());
+
+    let mut core = logic::Core::new(event_device, (proc_adp, srvc_adp));
+    let mut event_task = tokio::spawn(async move { core.run().await }).guard();
 
     // collect main driver tasks
     let tasks = async { tokio::select! {
@@ -130,14 +133,14 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
         result = &mut queue_task => result,
     }};
 
-    debug!(logger, "running...");
-
     // run until whatever comes first: error, panic, or shutdown signal
+    info!(target: "sdtxd", "running...");
+
     tokio::select! {
         signame = sig => {
             // first shutdown signal: try to do a clean shutdown and complete
             // the task queue
-            info!(logger, "received {}, shutting down...", signame);
+            info!(target: "sdtxd", "received {}, shutting down...", signame);
 
             // stop event task: don't handle any new DTX events and drop task
             // queue transmitter to eventually cause the task queue task to
@@ -160,7 +163,7 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
             // second signal received
             tokio::select! {
                 (signame, tval) = sig => {
-                    warn!(logger, "received {} during shutdown, terminating...", signame);
+                    warn!(target: "sdtxd", "received {} during shutdown, terminating...", signame);
                     std::process::exit(128 + tval)
                 },
                 result = queue_task => match result {
@@ -180,13 +183,10 @@ async fn run(logger: Logger, config: Config) -> Result<()> {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    // no logger so we can't log errors here
-    let (logger, config) = bootstrap()?;
-
     // run main function and log critical errors
-    let result = run(logger.clone(), config).await;
+    let result = run().await;
     if let Err(ref err) = result {
-        crit!(logger, "Critical error: {}\n", err);
+        error!(target: "sdtxd", "critical error: {}\n", err);
     }
 
     // for some reason tokio won't properly shut down, even though every task
