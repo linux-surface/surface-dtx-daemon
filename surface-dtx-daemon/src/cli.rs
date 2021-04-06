@@ -11,4 +11,7 @@ pub fn app() -> App<'static, 'static> {
             .value_name("FILE")
             .help("Use the specified config file")
             .takes_value(true))
+        .arg(Arg::with_name("no-log-time")
+            .long("no-log-time")
+            .help("Do not emit timestamps in log"))
 }

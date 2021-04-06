@@ -30,11 +30,16 @@ fn bootstrap() -> Result<Config> {
     let fmt = tracing_subscriber::fmt::format::PrettyFields::new()
         .with_ansi(ansi);
 
-    tracing_subscriber::fmt()
+    let subscriber = tracing_subscriber::fmt()
         .fmt_fields(fmt)
         .with_env_filter(filter)
-        .with_ansi(atty::is(atty::Stream::Stdout))
-        .init();
+        .with_ansi(atty::is(atty::Stream::Stdout));
+
+    if matches.is_present("no-log-time") {
+        subscriber.without_time().init();
+    } else {
+        subscriber.init();
+    }
 
     // warn about unknown config items
     diag.log();
