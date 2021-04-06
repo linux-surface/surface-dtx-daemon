@@ -2,7 +2,6 @@ use crate::config::Config;
 use crate::logic::{
     Adapter,
     AtHandle,
-    CancelReason,
     DtHandle,
     DtcHandle,
 };
@@ -142,7 +141,7 @@ impl Adapter for ProcessAdapter {
         Ok(())
     }
 
-    fn detachment_cancel_start(&mut self, handle: DtcHandle, _reason: CancelReason) -> Result<()> {
+    fn detachment_cancel_start(&mut self, handle: DtcHandle) -> Result<()> {
         // build timeout task
         let h = handle.clone();
         let timeout = self.config.handler.detach_abort.timeout * 1000.0;

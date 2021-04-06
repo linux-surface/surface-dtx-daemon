@@ -88,12 +88,14 @@ impl DbusArg for CancelReason {
 
     fn as_arg(&self) -> Self::Arg {
         match self {
-            CancelReason::UserRequest => "request".into(),
+            CancelReason::UserRequest             => "request".into(),
+            CancelReason::HandlerTimeout          => "timeout:handler".into(),
+            CancelReason::DisconnectTimeout       => "timeout:disconnect".into(),
             CancelReason::Runtime(rt) => match rt {
-                RuntimeError::NotAttached => "error:runtime:not-attached".into(),
-                RuntimeError::NotFeasible => "error:runtime:not-feasible".into(),
-                RuntimeError::Timeout     => "error:runtime:timeout".into(),
-                RuntimeError::Unknown(x) => format!("error:runtime:unknown:{}", x),
+                RuntimeError::NotAttached         => "error:runtime:not-attached".into(),
+                RuntimeError::NotFeasible         => "error:runtime:not-feasible".into(),
+                RuntimeError::Timeout             => "error:runtime:timeout".into(),
+                RuntimeError::Unknown(x)  => format!("error:runtime:unknown:{}", x),
             },
             CancelReason::Hardware(hw) => match hw {
                 HardwareError::FailedToOpen       => "error:hardware:failedt-to-open".into(),

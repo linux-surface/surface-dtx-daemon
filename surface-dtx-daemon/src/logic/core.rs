@@ -252,7 +252,7 @@ impl<A: Adapter> Core<A> {
                 // if latch is open, defer cancellation until latch is closed
                 // again
                 debug!(target: "sdtxd::core", "request: deferring cancellation until latch closes");
-                return Ok(());
+                return self.adapter.detachment_cancel(CancelReason::UserRequest);
 
             } else if *self.state.ec == EcState::Confirmed {
                 // If we have requested the EC to open the latch, we have two
@@ -263,6 +263,8 @@ impl<A: Adapter> Core<A> {
                 // the latch is closed. Note that this shouldn't cause any
                 // issues with lost-update problems as we are essentially
                 // blocking the event handler.
+
+                self.adapter.detachment_cancel(CancelReason::UserRequest)?;
 
                 debug!(target: "sdtxd::core", "request: sleeping 2s to prevent synchronization issues");
                 tokio::time::sleep(std::time::Duration::new(2, 0)).await;
@@ -281,8 +283,10 @@ impl<A: Adapter> Core<A> {
             if *self.state.rt == RuntimeState::Detaching {
                 self.state.rt.set(RuntimeState::Canceling);
 
+                self.adapter.detachment_cancel(CancelReason::UserRequest)?;
+
                 let handle = DtcHandle { inject: self.inject_tx.clone() };
-                self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
+                self.adapter.detachment_cancel_start(handle)?;
             }
 
             return Ok(());
@@ -379,7 +383,7 @@ impl<A: Adapter> Core<A> {
         debug!(target: "sdtxd::core", "canceling detachment");
         self.device.latch_cancel().context("DTX device error")?;
 
-        self.adapter.detachment_timeout()
+        self.adapter.detachment_cancel(CancelReason::HandlerTimeout)
     }
 
     fn on_attach_complete(&mut self) -> Result<()> {
@@ -430,8 +434,10 @@ impl<A: Adapter> Core<A> {
                 if *self.state.rt == RuntimeState::Detaching {
                     self.state.rt.set(RuntimeState::Canceling);
 
+                    self.adapter.detachment_cancel(reason)?;
+
                     let handle = DtcHandle { inject: self.inject_tx.clone() };
-                    self.adapter.detachment_cancel_start(handle, reason)?;
+                    self.adapter.detachment_cancel_start(handle)?;
                 }
 
                 Ok(())
@@ -567,7 +573,9 @@ impl<A: Adapter> Core<A> {
             // (and below) in case of any error. In case of errors, the adapter
             // will get two events, one with an error and one with an attempt
             // at correcting this error.
-            return self.adapter.on_latch_status(LatchStatus::Opened);
+            self.adapter.on_latch_status(LatchStatus::Opened)?;
+            self.adapter.detachment_ready()?;
+            return Ok(());
         }
 
         // There is a timing issue when the user aborts, the latch closes, but
@@ -632,8 +640,10 @@ impl<A: Adapter> Core<A> {
                 if *self.state.rt == RuntimeState::Detaching {
                     self.state.rt.set(RuntimeState::Canceling);
 
+                    self.adapter.detachment_cancel(CancelReason::DisconnectTimeout)?;
+
                     let handle = DtcHandle { inject: self.inject_tx.clone() };
-                    self.adapter.detachment_cancel_start(handle, CancelReason::UserRequest)?;
+                    self.adapter.detachment_cancel_start(handle)?;
                 }
             } else {
                 debug!(target: "sdtxd::core", "detachment already canceled before latch closed");
@@ -748,15 +758,19 @@ pub trait Adapter {
         Ok(())
     }
 
+    fn detachment_ready(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     fn detachment_complete(&mut self) -> Result<()> {
         Ok(())
     }
 
-    fn detachment_timeout(&mut self) -> Result<()> {
+    fn detachment_cancel(&mut self, reason: CancelReason) -> Result<()> {
         Ok(())
     }
 
-    fn detachment_cancel_start(&mut self, handle: DtcHandle, reason: CancelReason) -> Result<()> {
+    fn detachment_cancel_start(&mut self, handle: DtcHandle) -> Result<()> {
         Ok(())
     }
 
@@ -819,21 +833,27 @@ macro_rules! impl_adapter_for_tuple {
                 Ok(())
             }
 
+            fn detachment_ready(&mut self) -> Result<()> {
+                let ($($name,)+) = self;
+                ($($name.detachment_ready()?,)+);
+                Ok(())
+            }
+
             fn detachment_complete(&mut self) -> Result<()> {
                 let ($($name,)+) = self;
                 ($($name.detachment_complete()?,)+);
                 Ok(())
             }
 
-            fn detachment_timeout(&mut self) -> Result<()> {
+            fn detachment_cancel(&mut self, reason: CancelReason) -> Result<()> {
                 let ($($name,)+) = self;
-                ($($name.detachment_timeout()?,)+);
+                ($($name.detachment_cancel(reason)?,)+);
                 Ok(())
             }
 
-            fn detachment_cancel_start(&mut self, handle: DtcHandle, reason: CancelReason) -> Result<()> {
+            fn detachment_cancel_start(&mut self, handle: DtcHandle) -> Result<()> {
                 let ($($name,)+) = self;
-                ($($name.detachment_cancel_start(handle.clone(), reason)?,)+);
+                ($($name.detachment_cancel_start(handle.clone())?,)+);
                 Ok(())
             }
 

@@ -12,9 +12,10 @@ use dbus::arg::{Variant, RefArg};
 pub enum Event {
     DetachmentInhibited { reason: CancelReason },
     DetachmentStart,
+    DetachmentReady,
     DetachmentComplete,
-    DetachmentTimeout,
-    DetachmentCancelStart { reason: CancelReason },
+    DetachmentCancel { reason: CancelReason },
+    DetachmentCancelStart,
     DetachmentCancelComplete,
     DetachmentCancelTimeout,
     DetachmentUnexpected,
@@ -56,19 +57,22 @@ impl Event {
             "detachment:start" => {
                 Event::DetachmentStart
             },
+            "detachment:ready" => {
+                Event::DetachmentReady
+            },
             "detachment:complete" => {
                 Event::DetachmentComplete
             },
-            "detachment:timeout" => {
-                Event::DetachmentTimeout
-            },
-            "detachment:cancel:start" => {
+            "detachment:cancel" => {
                 let reason = args.get("reason")
                     .ok_or_else(|| anyhow::anyhow!("Missing argument: reason"))
                     .and_then(CancelReason::try_from)
                     .context("Protocol error")?;
 
-                Event::DetachmentCancelStart { reason }
+                Event::DetachmentCancel { reason }
+            },
+            "detachment:cancel:start" => {
+                Event::DetachmentCancelStart
             },
             "detachment:cancel:complete" => {
                 Event::DetachmentCancelComplete
@@ -110,6 +114,8 @@ impl TryFrom<&Message> for Event {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CancelReason {
     UserRequest,
+    HandlerTimeout,
+    DisconnectTimeout,
     Runtime(RuntimeError),
     Hardware(HardwareError),
     Unknown(u16),
@@ -120,7 +126,9 @@ impl FromStr for CancelReason {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "request" => Ok(Self::UserRequest),
+            "request"            => Ok(Self::UserRequest),
+            "timeout:handler"    => Ok(Self::HandlerTimeout),
+            "timeout:disconnect" => Ok(Self::DisconnectTimeout),
             _ if s.starts_with("error:runtime") => Ok(Self::Runtime(RuntimeError::from_str(s)?)),
             _ if s.starts_with("error:hardware") => Ok(Self::Hardware(HardwareError::from_str(s)?)),
             _ if s.starts_with("unknown:") => {

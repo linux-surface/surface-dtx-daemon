@@ -45,6 +45,8 @@ impl std::fmt::Display for RuntimeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CancelReason {
     UserRequest,    // user or higher layer requested cancelation, or user did not act
+    HandlerTimeout,
+    DisconnectTimeout,
     Runtime(RuntimeError),
     Hardware(HardwareError),
     Unknown(u16),
@@ -63,10 +65,12 @@ impl From<event::CancelReason> for CancelReason {
 impl std::fmt::Display for CancelReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UserRequest   => write!(f, "user request"),
-            Self::Runtime(err)  => write!(f, "runtime error: {}", err),
-            Self::Hardware(err) => write!(f, "hardware error: {}", err),
-            Self::Unknown(x)    => write!(f, "unknown: {:#04x}", x),
+            Self::UserRequest       => write!(f, "user request"),
+            Self::HandlerTimeout    => write!(f, "timed out waiting for detachment handler"),
+            Self::DisconnectTimeout => write!(f, "timed out waiting for user to disconnect base"),
+            Self::Runtime(err)      => write!(f, "runtime error: {}", err),
+            Self::Hardware(err)     => write!(f, "hardware error: {}", err),
+            Self::Unknown(x)        => write!(f, "unknown: {:#04x}", x),
         }
     }
 }

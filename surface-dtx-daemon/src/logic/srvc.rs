@@ -56,18 +56,23 @@ impl Adapter for ServiceAdapter {
         Ok(())
     }
 
+    fn detachment_ready(&mut self) -> Result<()> {
+        self.service.emit_event(Event::DetachmentReady);
+        Ok(())
+    }
+
     fn detachment_complete(&mut self) -> Result<()> {
         self.service.emit_event(Event::DetachmentComplete);
         Ok(())
     }
 
-    fn detachment_timeout(&mut self) -> Result<()> {
-        self.service.emit_event(Event::DetachmentTimeout);
+    fn detachment_cancel(&mut self, reason: CancelReason) -> Result<()> {
+        self.service.emit_event(Event::DetachmentCancel { reason });
         Ok(())
     }
 
-    fn detachment_cancel_start(&mut self, _handle: DtcHandle, reason: CancelReason) -> Result<()> {
-        self.service.emit_event(Event::DetachmentCancelStart { reason });
+    fn detachment_cancel_start(&mut self, _handle: DtcHandle) -> Result<()> {
+        self.service.emit_event(Event::DetachmentCancelStart);
         Ok(())
     }
 
