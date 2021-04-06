@@ -44,7 +44,71 @@ impl Core {
     }
 
     async fn on_detachment_inhibited(&mut self, reason: CancelReason) -> Result<()> {
-        // TODO: display info or error notification
+        let (category, summary, body): (_, _, Cow<'static, str>) = match reason {
+            CancelReason::Runtime(err) => match err {
+                super::types::RuntimeError::NotFeasible => (
+                    "device",
+                    "Surface DTX: Cannot detach",
+                    "Detachment inhibited by the controller. \
+                     Please make sure that the tablet battery is sufficently charged."
+                        .into()
+                ),
+                super::types::RuntimeError::Unknown(x) => (
+                    "device.error",
+                    "Surface DTX: Error",
+                    format!("Detachment inhibited due to unknown runtime error ({}).", x)
+                        .into()
+                ),
+                _ => { return Ok(()); },
+            },
+            CancelReason::Hardware(err) => match err {
+                super::types::HardwareError::FailedToOpen => (
+                    "device.error",
+                    "Surface DTX: Error",
+                    "Hardware error: The controller failed to open the latch."
+                        .into()
+                ),
+                super::types::HardwareError::FailedToRemainOpen => (
+                    "device.error",
+                    "Surface DTX: Error",
+                    "Hardware error: The controller failed to keep the latch open."
+                        .into()
+                ),
+                super::types::HardwareError::FailedToClose => (
+                    "device.error",
+                    "Surface DTX: Error",
+                    "Hardware error: The controller failed to close the latch."
+                        .into()
+                ),
+                super::types::HardwareError::Unknown(x) => (
+                    "device.error",
+                    "Surface DTX: Error",
+                    format!("Detachment inhibited due to unknown hardware error ({}).", x)
+                        .into()
+                ),
+            },
+            CancelReason::Unknown(x) => (
+                "device.error",
+                "Surface DTX: Error",
+                format!("Detachment inhibited due to unknown error ({}).", x)
+                    .into()
+            ),
+            _ => { return Ok(()); },
+        };
+
+        let handle = Notification::create("Surface DTX")
+            .summary(summary)
+            .body(body)
+            .hint_s("image-path", "input-tablet")
+            .hint_s("category", category)
+            .hint("urgency", 2)
+            .build()
+            .show(&self.session).await
+            .context("Failed to display notification")?;
+
+        trace!(target: "sdtxu::notify", id = handle.id, ty = "detach-inhibited",
+               "displaying notification");
+
         Ok(())
     }
 
