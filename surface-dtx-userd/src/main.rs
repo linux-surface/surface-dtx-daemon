@@ -55,7 +55,7 @@ async fn run() -> Result<()> {
             _ = sigterm.recv() => "SIGTERM",
         };
 
-        info!("received {}, shutting down...", cause);
+        info!(target: "sdtxu", "received {}, shutting down...", cause);
     };
 
     // set up main logic task
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     // run main function and log critical errors
     let result = run().await;
     if let Err(ref err) = result {
-        error!("critical error: {}\n", err);
+        error!(target: "sdtxu", "critical error: {}\n", err);
     }
 
     result
