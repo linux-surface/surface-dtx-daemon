@@ -10,7 +10,6 @@ use dbus::nonblock::SyncConnection;
 use tracing::{debug, trace};
 
 
-#[derive(Clone)]
 pub struct Core {
     session:      Arc<SyncConnection>,
     detach_notif: Option<NotificationHandle>,
