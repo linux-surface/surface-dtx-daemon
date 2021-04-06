@@ -281,7 +281,7 @@ impl Core {
     async fn on_attachment_complete(&mut self) -> Result<()> {
         let handle = Notification::create("Surface DTX")
             .summary("Surface DTX: Base attached")
-            .body("The base has been successfully attached and is now fully usable.")
+            .body("The base has been successfully attached and is ready.")
             .hint_s("image-path", "input-tablet")
             .hint_s("category", "device.added")
             .hint("transient", true)
