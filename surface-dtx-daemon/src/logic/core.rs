@@ -108,6 +108,7 @@ enum RuntimeState {
 struct CoreState {
     base:  Trace<BaseState>,
     latch: Trace<LatchState>,
+    mode:  Trace<DeviceMode>,
     ec:    Trace<EcState>,
     rt:    Trace<RuntimeState>,
     needs_attachment: Trace<bool>,
@@ -126,6 +127,7 @@ impl<A: Adapter> Core<A> {
         let state = CoreState {
             base:  Trace::new("state.base", BaseState::Attached),
             latch: Trace::new("state.latch", LatchState::Closed),
+            mode:  Trace::new("state.mode", DeviceMode::Laptop),
             ec:    Trace::new("state.ec", EcState::Ready),
             rt:    Trace::new("state.rt", RuntimeState::Ready),
             needs_attachment: Trace::new("state.needs_attachment", false),
@@ -169,6 +171,7 @@ impl<A: Adapter> Core<A> {
 
         self.state.base.set(base.state);
         self.state.latch.set(latch);
+        self.state.mode.set(mode);
         self.state.ec.set(ec);
         self.state.rt.set(RuntimeState::Ready);
 
@@ -230,7 +233,7 @@ impl<A: Adapter> Core<A> {
                 self.on_base_state(state, device_type, id)
             },
             Event::LatchStatus { status } => {
-                self.on_latch_status(status)
+                self.on_latch_status(status).await
             },
             Event::DeviceMode { mode } => {
                 self.on_device_mode(mode)
@@ -507,7 +510,7 @@ impl<A: Adapter> Core<A> {
         }
     }
 
-    fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
+    async fn on_latch_status(&mut self, status: event::LatchStatus) -> Result<()> {
         // translate state, warn and return on errors
         let state = match status {
             event::LatchStatus::Closed => LatchState::Closed,
@@ -556,20 +559,54 @@ impl<A: Adapter> Core<A> {
 
         debug!(target: "sdtxd::core", ?status, "latch: status changed");
 
-        // Fowrard to adapter: Note that we use the inferred state here in case
-        // of any error. In case of errors, the adapter will get two events,
-        // one with an error and one with an attempt at correcting this error.
-        self.adapter.on_latch_status(match state {
-            LatchState::Closed => LatchStatus::Closed,
-            LatchState::Opened => LatchStatus::Opened,
-        })?;
-
         // If latch has been opened, there's nothing left to do here. The
         // detachment procss will continue either when the base has been
         // detached or the latch has been closed again.
         if state == LatchState::Opened {
-            return Ok(());
+            // Fowrard to adapter: Note that we use the inferred state here
+            // (and below) in case of any error. In case of errors, the adapter
+            // will get two events, one with an error and one with an attempt
+            // at correcting this error.
+            return self.adapter.on_latch_status(LatchStatus::Opened);
         }
+
+        // There is a timing issue when the user aborts, the latch closes, but
+        // before it's fully closed the user removes the clipboard. In that
+        // case, the EC will not send update events for base state and device
+        // mode. Sleep 1s and then update those things ourselves.
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+        let base = self.device.get_base_info().context("DTX device error")?;
+        if *self.state.base != base.state {
+            trace!(target: "sdtxd::core", state=?base.state,
+                   "updating base info for closed latch detachment quirk");
+
+            *self.state.base = base.state;
+            self.adapter.on_base_state(base)?;
+        }
+
+        let device = self.device.clone();
+        let queue_tx = self.inject_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+            // note: we essentially ignore this error, this shouldn#t matter
+            let mode = device.get_device_mode()?;
+            let mode = match mode {
+                DeviceMode::Tablet => event::DeviceMode::Tablet,
+                DeviceMode::Laptop => event::DeviceMode::Laptop,
+                DeviceMode::Studio => event::DeviceMode::Studio,
+            };
+
+            trace!(target: "sdtxd::core", ?mode,
+                   "updating device mode for closed latch detachment quirk");
+
+            queue_tx.send(Event::DeviceMode { mode })?;
+            Result::<()>::Ok(())
+        });
+
+        // finally notify latch status after quirk handling
+        self.adapter.on_latch_status(LatchStatus::Closed)?;
 
         // Finish detachment process when latch has been closed.
         if *self.state.base == BaseState::Detached {
@@ -628,6 +665,11 @@ impl<A: Adapter> Core<A> {
             return Ok(());
         }
         let mode = DeviceMode::try_from(mode).unwrap();
+
+        if *self.state.mode == mode {
+            return Ok(());
+        }
+        self.state.mode.set(mode);
 
         debug!(target: "sdtxd::core", ?mode, "mode: device mode changed");
 
