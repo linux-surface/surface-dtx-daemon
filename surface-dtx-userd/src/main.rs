@@ -62,6 +62,8 @@ async fn run() -> Result<()> {
     let main = logic::run();
 
     // wait for error or shutdown signal
+    info!(target: "sdtxu", "running...");
+
     tokio::select! {
         _   = sig  => Ok(()),
         res = main => res,
