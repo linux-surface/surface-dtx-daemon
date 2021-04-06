@@ -2,7 +2,7 @@ mod core;
 use self::core::Core;
 
 mod types;
-use self::types::Event;
+pub use self::types::{CancelReason, Event};
 
 
 use crate::utils::task::JoinHandleExt;
