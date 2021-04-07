@@ -1,3 +1,12 @@
+surface-dtx-daemon (0.3.0-1) unstable; urgency=medium
+
+  * Properly forward hardware-errors, runtime-errors, and other notifications to user
+  * Support DTX heartbeat commend
+  * Support handler script timeouts
+  * Various stability improvements
+
+ -- Maximilian Luz <luzmaximilian@gmail.com>  Wed, 07 Apr 2021 03:48:02 +0200
+
 surface-dtx-daemon (0.2.0-2) unstable; urgency=medium
 
   * Bump release to build for Fedora 34
