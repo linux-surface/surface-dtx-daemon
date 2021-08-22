@@ -283,7 +283,7 @@ impl ProcessOutputExt for std::process::Output {
 
                 let data = std::str::from_utf8(data);
                 match data {
-                    Ok(ref str) => {
+                    Ok(str) => {
                         for line in str.lines() {
                             event!(target: "sdtxd::proc", level, "  (contd.)   {}", line);
                         }
