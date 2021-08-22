@@ -24,7 +24,7 @@ enum ExitStatus {
 }
 
 impl ExitStatus {
-    fn to_str(&self) -> &'static str {
+    fn as_str(&self) -> &'static str {
         match self {
             Self::Commence => "0",
             Self::Abort    => "1",
@@ -93,8 +93,8 @@ impl Adapter for ProcessAdapter {
                 // run handler
                 let output = Command::new(path)
                     .current_dir(dir)
-                    .env("EXIT_DETACH_COMMENCE", ExitStatus::Commence.to_str())
-                    .env("EXIT_DETACH_ABORT", ExitStatus::Abort.to_str())
+                    .env("EXIT_DETACH_COMMENCE", ExitStatus::Commence.as_str())
+                    .env("EXIT_DETACH_ABORT", ExitStatus::Abort.as_str())
                     .kill_on_drop(true)
                     .output().await
                     .context("Subprocess error (detachment)")?;
