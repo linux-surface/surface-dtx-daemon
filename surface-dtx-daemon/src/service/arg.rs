@@ -98,7 +98,7 @@ impl DbusArg for CancelReason {
                 RuntimeError::Unknown(x)  => format!("error:runtime:unknown:{}", x),
             },
             CancelReason::Hardware(hw) => match hw {
-                HardwareError::FailedToOpen       => "error:hardware:failedt-to-open".into(),
+                HardwareError::FailedToOpen       => "error:hardware:failed-to-open".into(),
                 HardwareError::FailedToRemainOpen => "error:hardware:failed-to-remain-open".into(),
                 HardwareError::FailedToClose      => "error:hardware:failed-to-close".into(),
                 HardwareError::Unknown(x) => format!("error:hardware:unknown:{}", x),
