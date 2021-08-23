@@ -1,3 +1,10 @@
+surface-dtx-daemon (0.3.1-1) unstable; urgency=medium
+
+  * Fix typo causing the user-daemon to crash on latch error
+  * Update dependencies
+
+ -- Maximilian Luz <luzmaximilian@gmail.com>  Mon, 23 Aug 2021 02:09:22 +0200
+
 surface-dtx-daemon (0.3.0-1) unstable; urgency=medium
 
   * Properly forward hardware-errors, runtime-errors, and other notifications to user

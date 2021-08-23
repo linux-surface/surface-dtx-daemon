@@ -1,5 +1,5 @@
 Name:       surface-dtx-daemon
-Version:    0.3.0
+Version:    0.3.1
 Release:    1%{?dist}
 Summary:    Surface Detachment System (DTX) Daemon
 
@@ -71,6 +71,10 @@ install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/co
 /usr/share/fish/completions/surface-dtx-userd.fish
 
 %changelog
+* Mon Aug 23 2021 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.1-1
+- Fix typo causing the user-daemon to crash on latch error
+- Update dependencies
+
 * Wed Apr 07 2021 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.0-1
 - Properly forward hardware-errors, runtime-errors, and other notifications to user
 - Support DTX heartbeat commend
