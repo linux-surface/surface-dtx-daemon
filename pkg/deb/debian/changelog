@@ -1,3 +1,9 @@
+surface-dtx-daemon (0.3.1-2) unstable; urgency=medium
+
+  * Bump release to build for Fedora 35
+
+ -- Dorian Stoll <dorian.stoll@tmsp.io>  Wed, 03 Nov 2021 19:48:00 +0100
+
 surface-dtx-daemon (0.3.1-1) unstable; urgency=medium
 
   * Fix typo causing the user-daemon to crash on latch error
