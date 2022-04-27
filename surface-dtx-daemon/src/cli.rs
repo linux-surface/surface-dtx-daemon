@@ -1,17 +1,17 @@
-use clap::{App, Arg};
+use clap::{Arg, Command};
 
-pub fn app() -> App<'static, 'static> {
-    App::new("Surface DTX Daemon")
+pub fn app() -> Command<'static> {
+    Command::new("Surface DTX Daemon")
         .about(clap::crate_description!())
         .version(clap::crate_version!())
         .author(clap::crate_authors!())
-        .arg(Arg::with_name("config")
-            .short("c")
+        .arg(Arg::new("config")
+            .short('c')
             .long("config")
             .value_name("FILE")
             .help("Use the specified config file")
             .takes_value(true))
-        .arg(Arg::with_name("no-log-time")
+        .arg(Arg::new("no-log-time")
             .long("no-log-time")
             .help("Do not emit timestamps in log"))
 }

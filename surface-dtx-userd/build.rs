@@ -1,5 +1,5 @@
 use std::env;
-use clap::Shell;
+use clap_complete::shells;
 
 include!("src/cli.rs");
 
@@ -10,7 +10,7 @@ fn main() {
         .unwrap();
 
     let mut app = app();
-    app.gen_completions("surface-dtx-userd", Shell::Bash, &outdir);
-    app.gen_completions("surface-dtx-userd", Shell::Zsh,  &outdir);
-    app.gen_completions("surface-dtx-userd", Shell::Fish, &outdir);
+    clap_complete::generate_to(shells::Bash, &mut app, "surface-dtx-userd", &outdir).unwrap();
+    clap_complete::generate_to(shells::Zsh,  &mut app, "surface-dtx-userd", &outdir).unwrap();
+    clap_complete::generate_to(shells::Fish, &mut app, "surface-dtx-userd", &outdir).unwrap();
 }
