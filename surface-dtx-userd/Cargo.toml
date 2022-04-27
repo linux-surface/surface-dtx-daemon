@@ -11,17 +11,17 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
-anyhow = "1.0.43"
+anyhow = "1.0.57"
 atty = "0.2.14"
 clap = "2.33.3"
-dbus = "0.9.3"
-dbus-tokio = "0.7.4"
-futures = "0.3.16"
-serde = { version = "1.0.128", features = ["derive"] }
+dbus = "0.9.5"
+dbus-tokio = "0.7.5"
+futures = "0.3.21"
+serde = { version = "1.0.136", features = ["derive"] }
 serde_ignored = "0.1.2"
-tokio = { version = "1.10.0", features = ["macros", "rt", "signal"] }
-toml = "0.5.8"
-tracing = "0.1.26"
+tokio = { version = "1.18.0", features = ["macros", "rt", "signal"] }
+toml = "0.5.9"
+tracing = "0.1.34"
 tracing-subscriber = "0.2.20"
 
 [build-dependencies]
