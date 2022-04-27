@@ -502,7 +502,7 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "surface-dtx-daemon"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "atty",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "surface-dtx-userd"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "atty",
