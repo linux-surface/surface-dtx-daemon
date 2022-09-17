@@ -188,7 +188,7 @@ impl NotificationHandle {
             conn,
         );
 
-        let (): () = proxy
+        proxy
             .method_call(
                 "org.freedesktop.Notifications",
                 "CloseNotification",
