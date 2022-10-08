@@ -1,5 +1,5 @@
 Name:       surface-dtx-daemon
-Version:    0.3.2
+Version:    0.3.3
 Release:    1%{?dist}
 Summary:    Surface Detachment System (DTX) Daemon
 
