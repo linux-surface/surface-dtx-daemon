@@ -17,12 +17,12 @@ clap = { version = "3.2.22", features = ["cargo"] }
 dbus = "0.9.6"
 dbus-tokio = "0.7.5"
 futures = "0.3.24"
-serde = { version = "1.0.144", features = ["derive"] }
+serde = { version = "1.0.145", features = ["derive"] }
 serde_ignored = "0.1.5"
-tokio = { version = "1.21.1", features = ["macros", "rt", "signal"] }
+tokio = { version = "1.21.2", features = ["macros", "rt", "signal"] }
 toml = "0.5.9"
-tracing = "0.1.36"
-tracing-subscriber = { version = "0.3.15", features = ["std", "env-filter"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ["std", "env-filter"] }
 
 [build-dependencies]
 clap = "3.2.22"
