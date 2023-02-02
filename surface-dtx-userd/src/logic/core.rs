@@ -56,7 +56,7 @@ impl Core {
                 super::types::RuntimeError::Unknown(x) => (
                     "device.error",
                     "Surface DTX: Error",
-                    format!("Detachment inhibited due to unknown runtime error ({}).", x)
+                    format!("Detachment inhibited due to unknown runtime error ({x}).")
                         .into()
                 ),
                 _ => { return Ok(()); },
@@ -83,14 +83,14 @@ impl Core {
                 super::types::HardwareError::Unknown(x) => (
                     "device.error",
                     "Surface DTX: Error",
-                    format!("Detachment inhibited due to unknown hardware error ({}).", x)
+                    format!("Detachment inhibited due to unknown hardware error ({x}).")
                         .into()
                 ),
             },
             CancelReason::Unknown(x) => (
                 "device.error",
                 "Surface DTX: Error",
-                format!("Detachment inhibited due to unknown error ({}).", x)
+                format!("Detachment inhibited due to unknown error ({x}).")
                     .into()
             ),
             _ => { return Ok(()); },
@@ -184,7 +184,7 @@ impl Core {
                 super::types::RuntimeError::Unknown(x) => (
                     "device.error",
                     "Surface DTX: Error",
-                    format!("Detachment canceled due to unknown runtime error ({}).", x)
+                    format!("Detachment canceled due to unknown runtime error ({x}).")
                         .into()
                 ),
                 _ => { return Ok(()); },
@@ -211,14 +211,14 @@ impl Core {
                 super::types::HardwareError::Unknown(x) => (
                     "device.error",
                     "Surface DTX: Error",
-                    format!("Detachment canceled due to unknown hardware error ({}).", x)
+                    format!("Detachment canceled due to unknown hardware error ({x}).")
                         .into()
                 ),
             },
             CancelReason::Unknown(x) => (
                 "device.error",
                 "Surface DTX: Error",
-                format!("Detachment canceled due to unknown error ({}).", x)
+                format!("Detachment canceled due to unknown error ({x}).")
                     .into()
             ),
             _ => { return Ok(()); },

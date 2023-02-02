@@ -45,7 +45,7 @@ impl DbusArg for LatchStatus {
                 HardwareError::FailedToOpen       => "error:hardware:failed-to-open".into(),
                 HardwareError::FailedToRemainOpen => "error:hardware:failed-to-remain-open".into(),
                 HardwareError::FailedToClose      => "error:hardware:failed-to-close".into(),
-                HardwareError::Unknown(x) => format!("error:hardware:unknown:{}", x),
+                HardwareError::Unknown(x) => format!("error:hardware:unknown:{x}"),
             },
         }
     }
@@ -78,7 +78,7 @@ impl DbusArg for DeviceType {
         match self {
             DeviceType::Hid => "hid".into(),
             DeviceType::Ssh => "ssh".into(),
-            DeviceType::Unknown(x) => format!("unknown:{}", x),
+            DeviceType::Unknown(x) => format!("unknown:{x}"),
         }
     }
 }
@@ -95,15 +95,15 @@ impl DbusArg for CancelReason {
                 RuntimeError::NotAttached         => "error:runtime:not-attached".into(),
                 RuntimeError::NotFeasible         => "error:runtime:not-feasible".into(),
                 RuntimeError::Timeout             => "error:runtime:timeout".into(),
-                RuntimeError::Unknown(x)  => format!("error:runtime:unknown:{}", x),
+                RuntimeError::Unknown(x)  => format!("error:runtime:unknown:{x}"),
             },
             CancelReason::Hardware(hw) => match hw {
                 HardwareError::FailedToOpen       => "error:hardware:failed-to-open".into(),
                 HardwareError::FailedToRemainOpen => "error:hardware:failed-to-remain-open".into(),
                 HardwareError::FailedToClose      => "error:hardware:failed-to-close".into(),
-                HardwareError::Unknown(x) => format!("error:hardware:unknown:{}", x),
+                HardwareError::Unknown(x) => format!("error:hardware:unknown:{x}"),
             },
-            CancelReason::Unknown(x) => format!("unknown:{}", x),
+            CancelReason::Unknown(x) => format!("unknown:{x}"),
         }
     }
 }

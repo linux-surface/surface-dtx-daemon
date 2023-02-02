@@ -36,7 +36,7 @@ impl std::fmt::Display for RuntimeError {
             Self::NotAttached => write!(f, "no base attached"),
             Self::NotFeasible => write!(f, "not feasible"),
             Self::Timeout     => write!(f, "timeout"),
-            Self::Unknown(x)  => write!(f, "unknown: {:#04x}", x),
+            Self::Unknown(x)  => write!(f, "unknown: {x:#04x}"),
         }
     }
 }
@@ -68,9 +68,9 @@ impl std::fmt::Display for CancelReason {
             Self::UserRequest       => write!(f, "user request"),
             Self::HandlerTimeout    => write!(f, "timed out waiting for detachment handler"),
             Self::DisconnectTimeout => write!(f, "timed out waiting for user to disconnect base"),
-            Self::Runtime(err)      => write!(f, "runtime error: {}", err),
-            Self::Hardware(err)     => write!(f, "hardware error: {}", err),
-            Self::Unknown(x)        => write!(f, "unknown: {:#04x}", x),
+            Self::Runtime(err)      => write!(f, "runtime error: {err}"),
+            Self::Hardware(err)     => write!(f, "hardware error: {err}"),
+            Self::Unknown(x)        => write!(f, "unknown: {x:#04x}"),
         }
     }
 }
