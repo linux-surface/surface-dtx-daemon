@@ -13,7 +13,7 @@ mod service;
 use service::Service;
 
 
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, path::PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -34,7 +34,7 @@ fn bootstrap() -> Result<Config> {
     let matches = cli::app().get_matches();
 
     // set up config
-    let (config, diag) = match matches.value_of("config") {
+    let (config, diag) = match matches.get_one::<PathBuf>("config") {
         Some(path) => Config::load_file(path)?,
         None       => Config::load()?,
     };
@@ -50,7 +50,7 @@ fn bootstrap() -> Result<Config> {
         .with_env_filter(filter)
         .with_ansi(atty::is(atty::Stream::Stdout));
 
-    if matches.is_present("no-log-time") {
+    if matches.get_flag("no-log-time") {
         subscriber.without_time().init();
     } else {
         subscriber.init();

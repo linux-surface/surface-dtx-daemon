@@ -1,6 +1,6 @@
-use clap::{Arg, Command};
+use clap::{Arg, Command, ArgAction};
 
-pub fn app() -> Command<'static> {
+pub fn app() -> Command {
     Command::new("Surface DTX Daemon")
         .about(clap::crate_description!())
         .version(clap::crate_version!())
@@ -10,8 +10,9 @@ pub fn app() -> Command<'static> {
             .long("config")
             .value_name("FILE")
             .help("Use the specified config file")
-            .takes_value(true))
+            .value_parser(clap::value_parser!(std::path::PathBuf)))
         .arg(Arg::new("no-log-time")
             .long("no-log-time")
-            .help("Do not emit timestamps in log"))
+            .help("Do not emit timestamps in log")
+            .action(ArgAction::SetTrue))
 }

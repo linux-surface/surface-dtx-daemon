@@ -102,7 +102,7 @@ impl Config {
         let data = std::str::from_utf8(&buf)
             .with_context(|| format!("Failed to read config file (path: {:?})", path.as_ref()))?;
 
-        let de = &mut toml::Deserializer::new(data);
+        let de = toml::Deserializer::new(data);
 
         let mut unknowns = BTreeSet::new();
         let mut config: Config = serde_ignored::deserialize(de, |path| {
