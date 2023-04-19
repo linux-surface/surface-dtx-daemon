@@ -25,11 +25,12 @@ pub struct Log {
     pub level: LogLevel,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all="lowercase")]
 pub enum LogLevel {
     Error,
     Warn,
+    #[default]
     Info,
     Debug,
     Trace,
@@ -109,12 +110,6 @@ impl Diagnostics {
     }
 }
 
-
-impl Default for LogLevel {
-    fn default() -> LogLevel {
-        LogLevel::Info
-    }
-}
 
 impl From<LogLevel> for tracing::Level {
     fn from(level: LogLevel) -> Self {
