@@ -3,7 +3,7 @@
 ![CI](https://github.com/linux-surface/surface-dtx-daemon/workflows/CI/badge.svg)
 
 Linux User-Space Detachment System (DTX) Daemon for the Surface ACPI Driver (and Surface Books).
-Currently only the Surface Book 2 is supported, due to lack of driver-support on the Surface Book 1.
+Currently only the Surface Book 2 and 3 are supported, due to lack of driver-support on the Surface Book 1.
 This may change in the future.
 
 ## About this Package
@@ -11,7 +11,7 @@ This may change in the future.
 This package contains two daemons.
 A system daemon (`surface-dtx-daemon`) and a per-user daemon (`surface-dtx-userd`):
 
-- The system daemon allows proper clipboard detachment on the Surface Book 2. It allows you to run commands before the clipboard is unlocked, after it has been re-attached, or when the unlocking-process has been aborted (e.g. by pressing the detach-button a second time).
+- The system daemon allows proper clipboard detachment on the Surface Book 2 and 3. It allows you to run commands before the clipboard is unlocked, after it has been re-attached, or when the unlocking-process has been aborted (e.g. by pressing the detach-button a second time).
 See the configuration section below for details.
 Furthermore, this daemon provides a d-bus interface via which you can query the current device mode (i.e. if the device is in tablet-, laptop- or studio-mode).
 
