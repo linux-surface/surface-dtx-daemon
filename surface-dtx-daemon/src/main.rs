@@ -13,7 +13,7 @@ mod service;
 use service::Service;
 
 
-use std::{sync::{Arc, Mutex}, path::PathBuf};
+use std::{sync::{Arc, Mutex}, path::PathBuf, io::IsTerminal};
 
 use anyhow::{Context, Result};
 
@@ -48,7 +48,7 @@ fn bootstrap() -> Result<Config> {
     let subscriber = tracing_subscriber::fmt()
         .fmt_fields(fmt)
         .with_env_filter(filter)
-        .with_ansi(atty::is(atty::Stream::Stdout));
+        .with_ansi(std::io::stdout().is_terminal());
 
     if matches.get_flag("no-log-time") {
         subscriber.without_time().init();

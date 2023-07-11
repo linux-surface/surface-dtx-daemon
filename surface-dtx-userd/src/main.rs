@@ -3,7 +3,7 @@ mod config;
 mod logic;
 mod utils;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, io::IsTerminal};
 
 use crate::config::Config;
 
@@ -32,7 +32,7 @@ fn bootstrap() -> Result<Config> {
     let subscriber = tracing_subscriber::fmt()
         .fmt_fields(fmt)
         .with_env_filter(filter)
-        .with_ansi(atty::is(atty::Stream::Stdout));
+        .with_ansi(std::io::stdout().is_terminal());
 
     if matches.get_flag("no-log-time") {
         subscriber.without_time().init();
