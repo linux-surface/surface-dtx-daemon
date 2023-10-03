@@ -1,3 +1,9 @@
+surface-dtx-daemon (0.3.6-2) unstable; urgency=medium
+
+  * Bump release for Fedora 39 build
+
+ -- Maximilian Luz <luzmaximilian@gmail.com>  Tue, 03 Oct 2023 16:40:38 +0200
+
 surface-dtx-daemon (0.3.6-1) unstable; urgency=medium
 
   * Update dependencies
