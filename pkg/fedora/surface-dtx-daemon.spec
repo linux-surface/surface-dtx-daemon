@@ -1,5 +1,5 @@
 Name:       surface-dtx-daemon
-Version:    0.3.5
+Version:    0.3.6
 Release:    1%{?dist}
 Summary:    Surface Detachment System (DTX) Daemon
 
@@ -71,6 +71,9 @@ install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/co
 /usr/share/fish/completions/surface-dtx-userd.fish
 
 %changelog
+* Tue Oct 03 2023 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.6-1
+- Update dependencies
+
 * Tue Jul 11 2023 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.5-1
 - Update dependencies
 
