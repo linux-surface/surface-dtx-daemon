@@ -39,8 +39,8 @@ override_dh_install:
 	install -D -m644 "target/_surface-dtx-daemon" "${pkgdir}/usr/share/zsh/vendor-completions/_surface-dtx-daemon"
 	install -D -m644 "target/_surface-dtx-userd" "${pkgdir}/usr/share/zsh/vendor-completions/_surface-dtx-userd"
 
-	install -D -m644 "target/surface-dtx-daemon.fish" "${pkgdir}/usr/share/fish/completions/surface-dtx-daemon.fish"
-	install -D -m644 "target/surface-dtx-userd.fish" "${pkgdir}/usr/share/fish/completions/surface-dtx-userd.fish"
+	install -D -m644 "target/surface-dtx-daemon.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/surface-dtx-daemon.fish"
+	install -D -m644 "target/surface-dtx-userd.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/surface-dtx-userd.fish"
 
 %:
 	dh $@

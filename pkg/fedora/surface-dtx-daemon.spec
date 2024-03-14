@@ -51,8 +51,8 @@ install -D -m644 "target/surface-dtx-daemon.bash" "%{buildroot}/usr/share/bash-c
 install -D -m644 "target/surface-dtx-userd.bash" "%{buildroot}/usr/share/bash-completion/completions/surface-dtx-userd"
 install -D -m644 "target/_surface-dtx-daemon" "%{buildroot}/usr/share/zsh/site-functions/_surface-dtx-daemon"
 install -D -m644 "target/_surface-dtx-userd" "%{buildroot}/usr/share/zsh/site-functions/_surface-dtx-userd"
-install -D -m644 "target/surface-dtx-daemon.fish" "%{buildroot}/usr/share/fish/completions/surface-dtx-daemon.fish"
-install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/completions/surface-dtx-userd.fish"
+install -D -m644 "target/surface-dtx-daemon.fish" "%{buildroot}/usr/share/fish/vendor_completions.d/surface-dtx-daemon.fish"
+install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/vendor_completions.d/surface-dtx-userd.fish"
 
 %files
 %license surface-dtx-daemon/LICENSE
@@ -67,8 +67,8 @@ install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/co
 /usr/share/bash-completion/completions/surface-dtx-userd
 /usr/share/zsh/site-functions/_surface-dtx-daemon
 /usr/share/zsh/site-functions/_surface-dtx-userd
-/usr/share/fish/completions/surface-dtx-daemon.fish
-/usr/share/fish/completions/surface-dtx-userd.fish
+/usr/share/fish/vendor_completions.d/surface-dtx-daemon.fish
+/usr/share/fish/vendor_completions.d/surface-dtx-userd.fish
 
 %changelog
 * Thu Mar 14 2024 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.7-1
