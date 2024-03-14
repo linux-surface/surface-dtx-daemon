@@ -1,6 +1,6 @@
 Name:       surface-dtx-daemon
-Version:    0.3.6
-Release:    2%{?dist}
+Version:    0.3.7
+Release:    1%{?dist}
 Summary:    Surface Detachment System (DTX) Daemon
 
 License:    MIT
@@ -71,6 +71,9 @@ install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/co
 /usr/share/fish/completions/surface-dtx-userd.fish
 
 %changelog
+* Thu Mar 14 2024 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.7-1
+- Update dependencies
+
 * Tue Oct 03 2023 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.6-2
 - Bump release for Fedora 39 build
 
