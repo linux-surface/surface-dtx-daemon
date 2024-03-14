@@ -11,23 +11,23 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
-anyhow = "1.0.75"
-clap = { version = "4.4.6", features = ["cargo"] }
+anyhow = "1.0.81"
+clap = { version = "4.5.2", features = ["cargo"] }
 dbus = "0.9.7"
 dbus-tokio = "0.7.6"
 dbus-crossroads = "0.5.2"
-futures = "0.3.28"
-libc = "0.2.148"
-nix = "0.27.1"
+futures = "0.3.30"
+libc = "0.2.153"
+nix = "0.28.0"
 sdtx = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.4" }
 sdtx-tokio = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.4" }
-serde = { version = "1.0.188", features = ['derive'] }
-tokio = { version = "1.32.0", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
-toml = "0.8.2"
-serde_ignored = "0.1.9"
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", features = ["std", "env-filter"] }
+serde = { version = "1.0.197", features = ['derive'] }
+tokio = { version = "1.36.0", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
+toml = "0.8.11"
+serde_ignored = "0.1.10"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["std", "env-filter"] }
 
 [build-dependencies]
-clap = "4.4.6"
-clap_complete = "4.4.3"
+clap = "4.5.2"
+clap_complete = "4.5.1"
