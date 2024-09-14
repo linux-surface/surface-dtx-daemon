@@ -194,8 +194,6 @@ impl NotificationHandle {
                 "CloseNotification",
                 (self.id,),
             )
-            .await?;
-
-        Ok(())
+            .await
     }
 }
