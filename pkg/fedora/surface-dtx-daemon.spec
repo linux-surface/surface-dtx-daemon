@@ -1,10 +1,12 @@
 Name:       surface-dtx-daemon
-Version:    0.3.7
+Version:    0.3.8
 Release:    1%{?dist}
 Summary:    Surface Detachment System (DTX) Daemon
 
 License:    MIT
 URL:        https://github.com/linux-surface/surface-dtx-daemon
+
+Source0:    https://github.com/linux-surface/surface-dtx-daemon/archive/refs/tags/v%{version}-{release}.tar.gz
 
 Requires:       dbus libgcc
 BuildRequires:  rust cargo dbus-devel
@@ -19,8 +21,6 @@ lack of driver-support on the Surface Book 1. This may change in the future.
 %prep
 
 %build
-cd surface-dtx-daemon
-
 export CARGO_TARGET_DIR="$PWD/target"
 export CARGO_INCREMENTAL=0
 
@@ -29,8 +29,6 @@ strip --strip-all "target/release/surface-dtx-daemon"
 strip --strip-all "target/release/surface-dtx-userd"
 
 %install
-rm -rf %{buildroot}
-cd surface-dtx-daemon
 
 # binary files
 install -D -m755 "target/release/surface-dtx-daemon" "%{buildroot}/usr/bin/surface-dtx-daemon"
@@ -71,6 +69,9 @@ install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/ve
 /usr/share/fish/vendor_completions.d/surface-dtx-userd.fish
 
 %changelog
+* Sat Sep 14 2024 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.8-1
+- Update dependencies
+
 * Thu Mar 14 2024 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.7-1
 - Update dependencies
 
