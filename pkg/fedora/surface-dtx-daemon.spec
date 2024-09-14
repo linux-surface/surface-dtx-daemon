@@ -6,8 +6,6 @@ Summary:    Surface Detachment System (DTX) Daemon
 License:    MIT
 URL:        https://github.com/linux-surface/surface-dtx-daemon
 
-Source0:    https://github.com/linux-surface/surface-dtx-daemon/archive/refs/tags/v%{version}-{release}.tar.gz
-
 Requires:       dbus libgcc
 BuildRequires:  rust cargo dbus-devel
 
@@ -35,14 +33,14 @@ install -D -m755 "target/release/surface-dtx-daemon" "%{buildroot}/usr/bin/surfa
 install -D -m755 "target/release/surface-dtx-userd" "%{buildroot}/usr/bin/surface-dtx-userd"
 
 # application files
-install -D -m644 "etc/dtx/surface-dtx-daemon.conf" "%{buildroot}/etc/surface-dtx/surface-dtx-daemon.conf"
-install -D -m644 "etc/dtx/surface-dtx-userd.conf" "%{buildroot}/etc/surface-dtx/surface-dtx-userd.conf"
-install -D -m755 "etc/dtx/attach.sh" "%{buildroot}/etc/surface-dtx/attach.sh"
-install -D -m755 "etc/dtx/detach.sh" "%{buildroot}/etc/surface-dtx/detach.sh"
-install -D -m644 "etc/systemd/surface-dtx-daemon.service" "%{buildroot}/usr/lib/systemd/system/surface-dtx-daemon.service"
-install -D -m644 "etc/systemd/surface-dtx-userd.service" "%{buildroot}/usr/lib/systemd/user/surface-dtx-userd.service"
-install -D -m644 "etc/dbus/org.surface.dtx.conf" "%{buildroot}/etc/dbus-1/system.d/org.surface.dtx.conf"
-install -D -m644 "etc/udev/40-surface_dtx.rules" "%{buildroot}/etc/udev/rules.d/40-surface_dtx.rules"
+install -D -m644 "target/etc/dtx/surface-dtx-daemon.conf" "%{buildroot}/etc/surface-dtx/surface-dtx-daemon.conf"
+install -D -m644 "target/etc/dtx/surface-dtx-userd.conf" "%{buildroot}/etc/surface-dtx/surface-dtx-userd.conf"
+install -D -m755 "target/etc/dtx/attach.sh" "%{buildroot}/etc/surface-dtx/attach.sh"
+install -D -m755 "target/etc/dtx/detach.sh" "%{buildroot}/etc/surface-dtx/detach.sh"
+install -D -m644 "target/etc/systemd/surface-dtx-daemon.service" "%{buildroot}/usr/lib/systemd/system/surface-dtx-daemon.service"
+install -D -m644 "target/etc/systemd/surface-dtx-userd.service" "%{buildroot}/usr/lib/systemd/user/surface-dtx-userd.service"
+install -D -m644 "target/etc/dbus/org.surface.dtx.conf" "%{buildroot}/etc/dbus-1/system.d/org.surface.dtx.conf"
+install -D -m644 "target/etc/udev/40-surface_dtx.rules" "%{buildroot}/etc/udev/rules.d/40-surface_dtx.rules"
 
 # completion files
 install -D -m644 "target/surface-dtx-daemon.bash" "%{buildroot}/usr/share/bash-completion/completions/surface-dtx-daemon"
@@ -53,7 +51,6 @@ install -D -m644 "target/surface-dtx-daemon.fish" "%{buildroot}/usr/share/fish/v
 install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/vendor_completions.d/surface-dtx-userd.fish"
 
 %files
-%license surface-dtx-daemon/LICENSE
 %config /etc/dbus-1/system.d/org.surface.dtx.conf
 %config /etc/udev/rules.d/40-surface_dtx.rules
 %config(noreplace) /etc/surface-dtx/*
