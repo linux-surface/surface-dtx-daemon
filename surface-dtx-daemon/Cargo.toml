@@ -22,7 +22,7 @@ nix = "0.29.0"
 sdtx = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.5" }
 sdtx-tokio = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.5" }
 serde = { version = "1.0.210", features = ['derive'] }
-tokio = { version = "1.40.0", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
+tokio = { version = "1.43.1", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
 toml = "0.8.19"
 serde_ignored = "0.1.10"
 tracing = "0.1.40"
