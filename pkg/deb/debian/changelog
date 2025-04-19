@@ -1,3 +1,9 @@
+surface-dtx-daemon (0.3.9-1) unstable; urgency=medium
+
+  * Update dependencies
+
+ -- Maximilian Luz <luzmaximilian@gmail.com>  Sat, 19 Arp 2025 20:42:03 +0200
+
 surface-dtx-daemon (0.3.8-1) unstable; urgency=medium
 
   * Update dependencies
