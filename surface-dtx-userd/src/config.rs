@@ -40,7 +40,7 @@ pub enum LogLevel {
 impl Config {
     pub fn load() -> Result<(Config, Diagnostics)> {
         let mut user_config = std::env::var_os("XDG_CONFIG_HOME")
-            .and_then(|d| if d != "" { Some(d) } else { None })
+            .and_then(|d| if !d.is_empty() { Some(d) } else { None })
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("~/.config"));
         user_config.push(USER_CONFIG_LOCAL_PATH);
