@@ -518,8 +518,8 @@ checksum = "719b953e2095829ee67db738b3bfa9fa368c94900df327b3f07fe6e794d2fe1f"
 
 [[package]]
 name = "sdtx"
-version = "0.1.5"
-source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.5#46bca21b52a707e9e5bd951d40908b6a02fe921e"
+version = "0.1.6"
+source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.6#940c9a0cade870218ef8fee5f16df1eef8853c44"
 dependencies = [
  "futures",
  "nix",
@@ -530,8 +530,8 @@ dependencies = [
 
 [[package]]
 name = "sdtx-tokio"
-version = "0.1.5"
-source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.5#46bca21b52a707e9e5bd951d40908b6a02fe921e"
+version = "0.1.6"
+source = "git+https://github.com/linux-surface/libsurfacedtx?tag=v0.1.6#940c9a0cade870218ef8fee5f16df1eef8853c44"
 dependencies = [
  "futures",
  "sdtx",
@@ -679,18 +679,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
+version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.69"
+version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
 dependencies = [
  "proc-macro2",
  "quote",
