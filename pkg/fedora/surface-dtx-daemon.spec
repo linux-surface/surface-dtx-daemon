@@ -1,13 +1,14 @@
 Name:       surface-dtx-daemon
 Version:    0.3.9
-Release:    1%{?dist}
+Release:    2%{?dist}
 Summary:    Surface Detachment System (DTX) Daemon
 
 License:    MIT
 URL:        https://github.com/linux-surface/surface-dtx-daemon
 
 Requires:       dbus libgcc
-BuildRequires:  rust cargo dbus-devel
+%{?systemd_requires}
+BuildRequires:  rust cargo dbus-devel systemd-rpm-macros
 
 %global debug_package %{nil}
 
@@ -50,6 +51,18 @@ install -D -m644 "target/_surface-dtx-userd" "%{buildroot}/usr/share/zsh/site-fu
 install -D -m644 "target/surface-dtx-daemon.fish" "%{buildroot}/usr/share/fish/vendor_completions.d/surface-dtx-daemon.fish"
 install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/vendor_completions.d/surface-dtx-userd.fish"
 
+%post
+%systemd_post surface-dtx-daemon.service
+%systemd_user_post surface-dtx-userd.service
+
+%preun
+%systemd_preun surface-dtx-daemon.service
+%systemd_user_preun surface-dtx-userd.service
+
+%postun
+%systemd_postun_with_restart surface-dtx-daemon.service
+%systemd_user_postun_with_restart surface-dtx-userd.service
+
 %files
 %config /etc/dbus-1/system.d/org.surface.dtx.conf
 %config /etc/udev/rules.d/40-surface_dtx.rules
@@ -66,6 +79,9 @@ install -D -m644 "target/surface-dtx-userd.fish" "%{buildroot}/usr/share/fish/ve
 /usr/share/fish/vendor_completions.d/surface-dtx-userd.fish
 
 %changelog
+* Thu Oct 02 2025 Owen Zimmerman <owen@fyralabs.com> - 0.3.9-2
+- Add systemd macros
+
 * Sat Apr 19 2025 Maximilian Luz <luzmaximilian@gmail.com> - 0.3.9-1
 - Update dependencies
 
