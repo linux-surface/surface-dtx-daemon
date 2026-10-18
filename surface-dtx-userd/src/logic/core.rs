@@ -314,7 +314,7 @@ impl Core {
     }
 
     async fn close_current_notification(&mut self) -> Result<()> {
-        match self.notif {
+        match self.notif.take() {
             Some(handle) => {
                 trace!(target: "sdtxu::notify", id = handle.id, "closing notification");
 
