@@ -11,23 +11,23 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
-anyhow = "1.0.98"
-clap = { version = "4.5.37", features = ["cargo"] }
-dbus = "0.9.7"
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["cargo"] }
+dbus = "0.9.12"
 dbus-tokio = "0.7.6"
-dbus-crossroads = "0.5.2"
-futures = "0.3.31"
-libc = "0.2.172"
-nix = "0.30.0"
-sdtx = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.7" }
-sdtx-tokio = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.7" }
-serde = { version = "1.0.219", features = ['derive'] }
-tokio = { version = "1.44.2", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
-toml = "0.9.0"
-serde_ignored = "0.1.11"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["std", "env-filter"] }
+dbus-crossroads = "0.5.3"
+futures = "0.3.34"
+libc = "0.2.191"
+nix = "0.31.3"
+sdtx = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.8" }
+sdtx-tokio = { git = "https://github.com/linux-surface/libsurfacedtx", tag = "v0.1.8" }
+serde = { version = "1.0.229", features = ['derive'] }
+tokio = { version = "1.53.3", features = ["fs", "sync", "process", "signal", "io-util", "rt", "macros"] }
+toml = "1.1.8"
+serde_ignored = "0.1.14"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["std", "env-filter"] }
 
 [build-dependencies]
-clap = "4.5.37"
-clap_complete = "4.5.47"
+clap = "4.6.7"
+clap_complete = "4.6.11"

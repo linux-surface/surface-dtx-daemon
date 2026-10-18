@@ -11,18 +11,18 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
-anyhow = "1.0.98"
-clap = { version = "4.5.37", features = ["cargo"] }
-dbus = "0.9.7"
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["cargo"] }
+dbus = "0.9.12"
 dbus-tokio = "0.7.6"
-futures = "0.3.31"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_ignored = "0.1.11"
-tokio = { version = "1.44.2", features = ["macros", "rt", "signal"] }
-toml = "0.9.0"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["std", "env-filter"] }
+futures = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_ignored = "0.1.14"
+tokio = { version = "1.53.3", features = ["macros", "rt", "signal"] }
+toml = "1.1.8"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["std", "env-filter"] }
 
 [build-dependencies]
-clap = "4.5.37"
-clap_complete = "4.5.47"
+clap = "4.6.7"
+clap_complete = "4.6.11"
